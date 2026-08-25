@@ -1,0 +1,96 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    name: lint
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install ruff
+        run: python -m pip install --upgrade "ruff>=0.6"
+      - run: ruff check --output-format=github .
+      - run: ruff format --check --diff .
+
+  test:
+    name: test (py${{ matrix.python-version }}, ${{ matrix.deps }})
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        python-version: ["3.11", "3.12", "3.13"]
+        deps: [full]
+        include:
+          # Guard the optional-dependency skip paths: a minimal install must
+          # still collect and pass the suite.
+          - python-version: "3.12"
+            deps: minimal
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          # setuptools-scm needs history and tags to derive a version.
+          fetch-depth: 0
+
+      - uses: actions/setup-python@v7
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+
+      - name: Install (full)
+        if: matrix.deps == 'full'
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[all,test]"
+
+      - name: Install (minimal)
+        if: matrix.deps == 'minimal'
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[test]"
+
+      - name: Show environment
+        run: |
+          python -c "import radar_palette; print('radar-palette', radar_palette.__version__)"
+          python -m pip list
+
+      - name: Run tests
+        run: pytest -ra --cov=radar_palette --cov-report=term-missing
+
+  build:
+    name: build and check metadata
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Build sdist and wheel
+        run: |
+          python -m pip install --upgrade pip build twine
+          python -m build
+      - name: Validate metadata
+        run: twine check --strict dist/*
+      - name: Install the built wheel in a clean environment
+        run: |
+          python -m venv /tmp/check
+          /tmp/check/bin/python -m pip install --upgrade pip
+          /tmp/check/bin/python -m pip install dist/*.whl
+          /tmp/check/bin/python -c "import radar_palette; print(radar_palette.__version__)"
+      - uses: actions/upload-artifact@v7
+        with:
+          name: dist
+          path: dist/

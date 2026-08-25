@@ -1,0 +1,16 @@
+# setuptools-scm includes every git-tracked file in the sdist. This file is the
+# belt-and-braces version for builds where git metadata is unavailable (e.g. a
+# GitHub source tarball), so the sdist stays self-contained and testable.
+include LICENSE
+include README.md
+include CONTRIBUTING.md
+include CHANGELOG.md
+include pyproject.toml
+include .pre-commit-config.yaml
+recursive-include src/radar_palette *.py py.typed
+recursive-include tests *.py
+recursive-include docs *.py *.md Makefile
+recursive-include .github *.yml *.md
+prune docs/_build
+prune docs/generated
+global-exclude *.py[cod] __pycache__ .DS_Store
