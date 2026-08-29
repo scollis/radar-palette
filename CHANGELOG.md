@@ -6,6 +6,71 @@ git tags via `setuptools-scm`.
 
 ## [Unreleased]
 
+### Added
+
+- **`radar_palette.gateid`: per-gate classification of the dominant scatterer.**
+  Two subpackages over one physics core. `gateid.single` classifies a volume from
+  uncorrected polarimetric moments with no reference to any other volume;
+  `gateid.temporal` provides tooling to measure and exploit persistence between
+  volumes. `gate_id()` accepts a Py-ART `Radar` or an xradar `DataTree` through
+  `radar_palette.io.flavors` and returns the family it was given.
+
+  The classifier targets chains that identify gates *before* correction, where the
+  gate ID is the control flow rather than a diagnostic: it decides which gates reach
+  phase processing, attenuation correction, dealiasing and rainfall estimation.
+
+  Three design decisions came out of profiling an operational configuration on
+  4.75 million ARM BNF C-SAPR2 gates:
+
+  - **Scores are normalised by attainable weight budget.** In a plain additive fuzzy
+    scheme a class can only win if the evidence it *could* muster is competitive.
+    Measured on that configuration, `rain` reached at most 3.0 without a sounding
+    while `snow` reached 4.0, so snow took 84% of gates above 40 dBZ in warm-season
+    convection. No membership-function tuning fixes that; the budget is the bug.
+  - **A class must have its evidence present to be eligible.** Budget normalisation
+    alone lets a class score a perfect 1.0 on two of five terms and tie one that
+    satisfied all of its own, so a gate with no range or spectrum width could be
+    called clutter on rho_hv alone.
+  - **Gates with no positive evidence are `unclassified`, never class zero.**
+    `argmax` breaks ties toward index 0, silently.
+
+  Second-trip echo and receiver noise are identified by phase coherence rather than
+  a tuned threshold. A magnetron randomises transmit phase pulse to pulse, so both
+  have radial velocity uniformly distributed over the Nyquist interval and a texture
+  of `v_nyq/sqrt(3)`. Measured on BNF RHIs at 16.30 m/s Nyquist: noise 8.96 m/s
+  against coherent precipitation 0.74 m/s, a 12x separation, with a cut at 0.32 of
+  the limit rejecting 100% of noise while keeping 99.9% of gates above 25 dBZ.
+
+  Biological scatterers are separated using the depolarization ratio computable from
+  simultaneous-transmit moments (Ryzhkov et al. 2017, their Eq. 6), which no
+  cross-polar channel is needed for: biology sits at -5.3 dB against precipitation
+  and anvil ice both near -19.5 dB.
+
+  `gateid.temporal` is deliberately measurement-first. A literature survey found no
+  published transition matrix or persistence probability for hydrometeor classes and
+  no Markov, HMM, CRF or MRF hydrometeor classifier of any kind, so the module
+  supplies `transition_matrix`, `persistence_skill` and `composition_drift` as
+  standalone measurements before any model. Its `temporal_prior` is one-way and
+  vetoable rather than a symmetric smoother, following the two operational
+  precedents; a symmetric alternative is the version documented to lock in and
+  propagate errors. Masking of no-echo classes is on by default, since roughly 80%
+  of a scan is empty sky and an unmasked matrix reports near-perfect persistence for
+  trivial reasons.
+
+  53 tests. An end-to-end parity test running one real volume through both object
+  families caught two bugs in the `Xradar` wrapper path during development: the
+  wrapper stores `sweep_mode` as one whole byte string per sweep rather than
+  Py-ART's row of characters, so 14 of 15 sweeps were rejected as unknown scan
+  types; and it does not surface Nyquist velocity through `instrument_parameters`,
+  so the phase-coherence test silently vanished. Backend disagreement fell from 93%
+  of gates to 0.007%.
+
+  One upstream difference is documented rather than worked around: xradar's
+  CfRadial1 reader returned 13,953 rays where Py-ART returned 13,954 on the
+  reference volume, and the two disagree far more on RHI files (89 against 7 rays),
+  so the parity test requires a multi-sweep PPI and compares per-class fractions
+  rather than exact counts.
+
 ### Fixed
 
 - **Split-cut selection was not reproducible across processes.** `census_sweep` fell
