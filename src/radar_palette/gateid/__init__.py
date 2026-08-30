@@ -23,6 +23,14 @@ where the gate ID is the control flow rather than a diagnostic: it decides which
 gates reach phase processing, attenuation correction, dealiasing and rainfall
 estimation.
 
+Importing :mod:`radar_palette` also registers a ``radarpalette`` accessor on
+:class:`xarray.DataTree`, so the classifier is available as a method on an
+xradar object::
+
+    tree = xd.io.open_cfradial1_datatree("cfrad.20260820_041403.nc")
+    tree.radarpalette.gateid(freezing_level_m=4670.0)
+    tree["sweep_0"]["gate_id"]
+
 Examples
 --------
 Classify a volume and build a filter for downstream steps::
@@ -42,7 +50,11 @@ Measure whether classes actually persist between volumes::
 
 from __future__ import annotations
 
-from radar_palette.gateid import features, single, temporal
+from radar_palette.gateid import accessor, features, single, temporal
+from radar_palette.gateid.accessor import (
+    RadarPaletteDataTreeAccessor,
+    register_accessors,
+)
 from radar_palette.gateid.entry_points import gate_id, meteorological_gatefilter
 from radar_palette.gateid.features import build_features, resolve_fields
 from radar_palette.gateid.single import (
@@ -71,10 +83,12 @@ from radar_palette.gateid.temporal import (
 
 __all__ = [
     "CLASSES",
+    "RadarPaletteDataTreeAccessor",
     "FROZEN",
     "LIQUID",
     "NAME_TO_CODE",
     "NON_MET",
+    "accessor",
     "accumulate_clutter_prior",
     "angular_texture",
     "apply_temporal_prior",
@@ -89,6 +103,7 @@ __all__ = [
     "meteorological_gatefilter",
     "noise_floor_mask",
     "persistence_skill",
+    "register_accessors",
     "resolve_fields",
     "single",
     "temporal",
@@ -97,3 +112,8 @@ __all__ = [
     "transition_matrix",
     "trapmf",
 ]
+
+# Registering on import is what makes ``tree.radarpalette.gateid(...)`` work
+# after a bare ``import radar_palette``, which is how xradar and Py-ART both
+# behave. It is idempotent and never raises.
+register_accessors()

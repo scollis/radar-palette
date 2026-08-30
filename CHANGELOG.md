@@ -57,7 +57,29 @@ git tags via `setuptools-scm`.
   of a scan is empty sky and an unmasked matrix reports near-perfect persistence for
   trivial reasons.
 
-  53 tests. An end-to-end parity test running one real volume through both object
+  Available three ways: as a function, as an accessor method, and through the
+  usual flavour handling. Importing `radar_palette` registers a `radarpalette`
+  accessor on `xarray.DataTree`, alongside the `xradar` and `pyart` accessors,
+  so the classifier reads as a method on an xradar object:
+
+  ```python
+  import xradar as xd
+  import radar_palette
+
+  xrd = xd.io.open_cfradial1_datatree("cfrad.20260820_041403.nc")
+  xrd.radarpalette.gateid(freezing_level_m=4670.0)
+  xrd["sweep_0"]["gate_id"]
+  ```
+
+  The accessor mutates the tree it is called on and returns it. It classifies
+  the caller's own sweeps rather than delegating to the functional path,
+  because that path converts through CfRadial and the round trip is not
+  shape-preserving: on an ARM BNF C-SAPR2 volume a 931-ray sweep came back with
+  930 rays, so copying results into the caller's tree would have misaligned
+  every gate in that sweep. Both routes share one physics core and a test
+  asserts their per-class fractions agree.
+
+  63 tests. An end-to-end parity test running one real volume through both object
   families caught two bugs in the `Xradar` wrapper path during development: the
   wrapper stores `sweep_mode` as one whole byte string per sweep rather than
   Py-ART's row of characters, so 14 of 15 sweeps were rejected as unknown scan
