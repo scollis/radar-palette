@@ -127,6 +127,7 @@ def build_features(
     elevation=None,
     prt=None,
     radar_altitude_m=0.0,
+    trip_ceiling_m=None,
 ):
     """Assemble the feature dictionary the classifier consumes.
 
@@ -160,6 +161,13 @@ def build_features(
         Pulse repetition time in seconds, for the unambiguous range.
     radar_altitude_m : float, optional
         Radar altitude above mean sea level.
+    trip_ceiling_m : float, optional
+        Height above which no scatterer is credible, for the second-trip veto.
+        Should be derived from the whole VOLUME: a low sweep's own echo top
+        reflects how high its beam reaches, not how tall the storm is, and
+        using it vetoes second trip precisely where it is most likely. When
+        omitted the ceiling falls back to this sweep's echo top, which is
+        correct only for a single-sweep input such as an RHI.
 
     Returns
     -------
@@ -217,6 +225,7 @@ def build_features(
             rng,
             np.broadcast_to(np.asarray(elevation, dtype="f8").reshape(-1, 1), shape),
             prt=prt,
+            ceiling_m=trip_ceiling_m,
             radar_altitude_m=radar_altitude_m,
             reflectivity=np.asarray(moments["z"], dtype="f8"),
             gate_height_m=height,

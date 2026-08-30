@@ -122,7 +122,21 @@ git tags via `setuptools-scm`.
   distribution becomes physically correct: monotonically decreasing with
   elevation and exactly zero above 6.5 deg, where geometry forbids it.
 
-  80 tests. An end-to-end parity test running one real volume through both object
+  The second-trip ceiling is derived from the whole volume, not from the
+  sweep being classified. A 1.5 deg sweep's own echo top describes how high
+  its beam reaches rather than how tall the storm is: on a BNF volume whose
+  storm reached 17.0 km, sweep 0 reported 3.85 km, giving a ceiling of 6.85 km
+  and a cutoff at 2.65 deg. That vetoed second trip beyond about 60 km
+  apparent range on precisely the low sweeps where second trip is most likely.
+  Using the volume echo top gives a 19.99 km ceiling and an 8.80 deg cutoff.
+  In a southwest annulus at 90-120 km apparent range, independently identified
+  as folded echo, multi_trip goes from 0.0% to 22.2% and rain from 9.2% to
+  3.3%, while the genuine cells inside 50 km keep their rain labels. Reported
+  as `trip_ceiling_m` and `trip_ceiling_source` so a reader can see which path
+  was taken; the per-sweep derivation remains the fallback for a genuinely
+  single-sweep input such as an RHI, where it is already correct.
+
+  84 tests. An end-to-end parity test running one real volume through both object
   families caught two bugs in the `Xradar` wrapper path during development: the
   wrapper stores `sweep_mode` as one whole byte string per sweep rather than
   Py-ART's row of characters, so 14 of 15 sweeps were rejected as unknown scan

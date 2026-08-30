@@ -43,6 +43,7 @@ __all__ = [
     "SPEED_OF_LIGHT",
     "beam_height",
     "echo_top_height",
+    "volume_echo_top",
     "max_elevation_for_second_trip",
     "second_trip_possible",
     "unambiguous_range",
@@ -137,6 +138,36 @@ def echo_top_height(reflectivity, gate_height_m, threshold_dbz=10.0, percentile=
     if not lit.any():
         return np.nan
     return float(np.percentile(h[lit], percentile))
+
+
+def volume_echo_top(sweeps, threshold_dbz=10.0, percentile=99.9):
+    """Echo top over a whole volume, in metres.
+
+    The ceiling for the second-trip veto must describe the *storm*, not the
+    beam. A 1.5 deg sweep cannot see above about 4 km at the ranges it
+    samples, so its own echo top is a property of the scan geometry rather
+    than of the weather -- on a BNF volume whose storm reached 17.0 km, sweep
+    0 reported 3.85 km. Using that as the ceiling vetoes second trip beyond
+    ~60 km apparent range on exactly the low sweeps where second trip is most
+    likely, which is self-defeating.
+
+    Parameters
+    ----------
+    sweeps : iterable of (reflectivity, gate_height_m)
+        One pair per sweep, each a 2-D array in dBZ and metres MSL.
+    threshold_dbz : float, optional
+        Reflectivity above which a gate counts as echo.
+    percentile : float, optional
+        Percentile of the echo-height distribution, per sweep.
+
+    Returns
+    -------
+    float
+        The tallest per-sweep echo top, or NaN if no sweep has echo.
+    """
+    tops = [echo_top_height(z, h, threshold_dbz, percentile) for z, h in sweeps]
+    tops = [t for t in tops if np.isfinite(t)]
+    return float(max(tops)) if tops else np.nan
 
 
 def max_elevation_for_second_trip(

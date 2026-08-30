@@ -16,6 +16,7 @@ import numpy as np
 
 from radar_palette.gateid import single
 from radar_palette.gateid.features import build_features, resolve_fields
+from radar_palette.gateid.multitrip import volume_echo_top
 from radar_palette.io.flavors import (
     detect_radar_flavor,
     resolve_output_flavor,
@@ -27,6 +28,10 @@ __all__ = [
     "gate_id",
     "meteorological_gatefilter",
 ]
+
+#: Added to the volume echo top to get the second-trip ceiling, so a storm
+#: slightly taller than the one sampled is not vetoed.
+TRIP_CEILING_MARGIN_M = 3000.0
 
 #: Scan modes whose sweeps are a constant-elevation surface.
 PPI_MODES = ("ppi", "sector", "azimuth_surveillance")
@@ -227,6 +232,30 @@ def gate_id(
     nyquist = _nyquist_velocity(radar, radar_like)
     params = getattr(radar, "instrument_parameters", None) or {}
 
+    # The second-trip ceiling is a property of the storm, so it is derived
+    # once over every usable sweep rather than per sweep. See
+    # radar_palette.gateid.multitrip.volume_echo_top for why this matters.
+    trip_ceiling_m, ceiling_source = None, "sweep_echo_top"
+    if radar.nsweeps > 1:
+        pairs = []
+        for sweep in range(radar.nsweeps):
+            ok, _, _ = _sweep_geometry_ok(radar, sweep)
+            if not ok:
+                continue
+            sl = radar.get_slice(sweep)
+            pairs.append(
+                (
+                    np.ma.filled(
+                        radar.fields[resolved["z"]]["data"][sl].astype("f8"), np.nan
+                    ),
+                    np.asarray(radar.gate_altitude["data"][sl], dtype="f8"),
+                )
+            )
+        top = volume_echo_top(pairs) if pairs else np.nan
+        if np.isfinite(top):
+            trip_ceiling_m = float(top) + TRIP_CEILING_MARGIN_M
+            ceiling_source = "volume_echo_top"
+
     temp_source = "none"
     for sweep in range(radar.nsweeps):
         ok, mode, span = _sweep_geometry_ok(radar, sweep)
@@ -261,6 +290,7 @@ def gate_id(
             texture_window=texture_window,
             elevation=radar.elevation["data"][sl],
             prt=prt,
+            trip_ceiling_m=trip_ceiling_m,
             radar_altitude_m=float(np.asarray(radar.altitude["data"]).ravel()[0]),
         )
         temp_source = fmeta["temp_source"]
@@ -330,6 +360,8 @@ def gate_id(
         "skipped_sweeps": skipped,
         "n_noise_floor": n_noise,
         "n_despeckled": n_speck,
+        "trip_ceiling_m": trip_ceiling_m,
+        "trip_ceiling_source": ceiling_source,
     }
     return to_radar_flavor(radar, output_flavor), meta
 

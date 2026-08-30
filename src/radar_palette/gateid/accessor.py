@@ -150,7 +150,35 @@ class RadarPaletteDataTreeAccessor:
         if incoherent_frac is None:
             incoherent_frac = single.INCOHERENT_TEXTURE_FRAC
 
+        from radar_palette.gateid.entry_points import TRIP_CEILING_MARGIN_M
+        from radar_palette.gateid.multitrip import volume_echo_top
+
         tree = self.datatree
+
+        # The second-trip ceiling describes the storm, so it is derived once
+        # over every usable sweep. A low sweep's own echo top is a property of
+        # how high its beam reaches, and using it vetoes second trip at
+        # exactly the long ranges where second trip is most likely.
+        sweep_keys = [k for k in tree.children if str(k).startswith("sweep")]
+        trip_ceiling_m, ceiling_source = None, "sweep_echo_top"
+        if len(sweep_keys) > 1:
+            pairs = []
+            for key in sweep_keys:
+                data = _sweep_geometry(tree[key].to_dataset(), tree)
+                names, _ = resolve_fields(data.data_vars)
+                if "z" not in names or "z" not in data.coords:
+                    continue
+                pairs.append(
+                    (
+                        np.asarray(data[names["z"]].values, dtype="f8"),
+                        np.asarray(data.coords["z"].values, dtype="f8"),
+                    )
+                )
+            top = volume_echo_top(pairs) if pairs else np.nan
+            if np.isfinite(top):
+                trip_ceiling_m = float(top) + TRIP_CEILING_MARGIN_M
+                ceiling_source = "volume_echo_top"
+
         counts = dict.fromkeys(single.CLASSES.values(), 0)
         classified, skipped = {}, []
         temp_source, resolved_names, missing_names = "none", {}, []
@@ -236,6 +264,7 @@ class RadarPaletteDataTreeAccessor:
                 elevation=np.asarray(dataset["elevation"].values, dtype="f8"),
                 prt=prt,
                 radar_altitude_m=altitude,
+                trip_ceiling_m=trip_ceiling_m,
             )
             temp_source = fmeta["temp_source"]
 
@@ -297,6 +326,8 @@ class RadarPaletteDataTreeAccessor:
             "skipped_sweeps": skipped,
             "n_noise_floor": n_noise,
             "n_despeckled": n_speck,
+            "trip_ceiling_m": trip_ceiling_m,
+            "trip_ceiling_source": ceiling_source,
         }
 
 
