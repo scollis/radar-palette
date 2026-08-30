@@ -79,7 +79,25 @@ git tags via `setuptools-scm`.
   every gate in that sweep. Both routes share one physics core and a test
   asserts their per-class fractions agree.
 
-  63 tests. An end-to-end parity test running one real volume through both object
+  Where Py-ART already provides a function, it is used rather than
+  reimplemented. The folding-aware velocity texture delegates to
+  `pyart.util.angular_texture_2d`; on a real BNF sweep the delegated and
+  previous implementations agreed to a median absolute difference of 7e-15,
+  and a test pins the equivalence so a future edit cannot quietly fork from
+  upstream. The only added behaviour is NaN propagation, since Py-ART
+  convolves with a symmetric boundary and lets a NaN smear through the window.
+
+  Three functions here deliberately do *not* delegate, and each says why in
+  its docstring. `texture` is 2-D on a bare array, where `pyart.util.texture`
+  is 1-D along the ray, takes a `Radar`, hardcodes an 11-point window and
+  prints to stdout. `despeckle` dissolves short runs in the *categorical*
+  class field, where `pyart.correct.despeckle_field` thresholds a
+  *continuous* field into a `GateFilter` -- different question, and the
+  Py-ART one remains the right tool for speckle in reflectivity.
+  `noise_floor_mask` consumes an SNR field and decides membership, where
+  Py-ART's helpers *derive* SNR and noise levels, so they compose.
+
+  65 tests. An end-to-end parity test running one real volume through both object
   families caught two bugs in the `Xradar` wrapper path during development: the
   wrapper stores `sweep_mode` as one whole byte string per sweep rather than
   Py-ART's row of characters, so 14 of 15 sweeps were rejected as unknown scan

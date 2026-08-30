@@ -667,3 +667,40 @@ def test_backends_agree_on_a_real_volume(tmp_path):
         frac_p = count_p / total_p
         frac_x = meta_x["class_counts"][name] / total_x
         assert frac_x == pytest.approx(frac_p, abs=2e-4), name
+
+
+def test_angular_texture_matches_pyart_where_data_is_valid():
+    """The folding-aware texture is Py-ART's, not a reimplementation.
+
+    Pinned so a future edit cannot quietly fork from upstream. The two must
+    agree wherever the input is finite; the only intended difference is that
+    NaN propagates here instead of being smeared by symmetric-boundary
+    convolution.
+    """
+    pyart = pytest.importorskip("pyart")
+
+    nyq = 16.3
+    rng = np.random.default_rng(0)
+    for field in (
+        np.full((60, 60), 4.0) + rng.normal(0, 0.15, (60, 60)),
+        rng.uniform(-nyq, nyq, (60, 60)),
+    ):
+        mine = core.angular_texture(field, nyq, 4)
+        theirs = pyart.util.angular_texture_2d(field, (4, 4), nyq)
+        interior = np.zeros_like(mine, dtype=bool)
+        interior[3:-3, 3:-3] = True  # away from the boundary
+        both = interior & np.isfinite(mine) & np.isfinite(theirs)
+        assert both.sum() > 1000
+        assert np.allclose(mine[both], theirs[both], atol=1e-9)
+
+
+def test_angular_texture_propagates_nan_where_pyart_does_not():
+    """The one deliberate difference, stated as a test rather than a comment."""
+    pytest.importorskip("pyart")
+
+    nyq = 16.3
+    rng = np.random.default_rng(1)
+    field = rng.uniform(-nyq, nyq, (40, 40))
+    field[10:14, 10:14] = np.nan
+    out = core.angular_texture(field, nyq, 4)
+    assert np.isnan(out[10:14, 10:14]).all()
