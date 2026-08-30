@@ -124,6 +124,9 @@ def build_features(
     temperature=None,
     freezing_level_m=None,
     texture_window=4,
+    elevation=None,
+    prt=None,
+    radar_altitude_m=0.0,
 ):
     """Assemble the feature dictionary the classifier consumes.
 
@@ -149,6 +152,14 @@ def build_features(
         that is flagged as such in the returned metadata.
     texture_window : int, optional
         Footprint, in gates and rays, of the texture operator.
+    elevation : array_like, optional
+        Elevation of each ray in degrees. Enables the geometric second-trip
+        veto; without it ``trip_possible`` is not produced and the multi-trip
+        class rests on moment evidence alone.
+    prt : float, optional
+        Pulse repetition time in seconds, for the unambiguous range.
+    radar_altitude_m : float, optional
+        Radar altitude above mean sea level.
 
     Returns
     -------
@@ -196,6 +207,24 @@ def build_features(
         # functions are independent of PRF and transfer between radars.
         feats["vel_texture_norm"] = (vtex / (nyquist / np.sqrt(3.0))).ravel()
 
+    # Geometric plausibility of second trip. Without a PRT this is all-ones,
+    # so the moment evidence stands alone rather than being silently
+    # overridden by a veto that could not be evaluated.
+    if elevation is not None:
+        from radar_palette.gateid.multitrip import second_trip_possible
+
+        possible, trip_meta = second_trip_possible(
+            rng,
+            np.broadcast_to(np.asarray(elevation, dtype="f8").reshape(-1, 1), shape),
+            prt=prt,
+            radar_altitude_m=radar_altitude_m,
+            reflectivity=np.asarray(moments["z"], dtype="f8"),
+            gate_height_m=height,
+        )
+        feats["trip_possible"] = possible.astype("f8").ravel()
+    else:
+        trip_meta = None
+
     temp_source = "none"
     if temperature is not None:
         feats["temp"] = np.broadcast_to(
@@ -214,6 +243,7 @@ def build_features(
         "nyquist": nyquist,
         "temp_source": temp_source,
         "freezing_level_m": freezing_level_m,
+        "second_trip": trip_meta,
         "derived": sorted(set(feats) - set(moments)),
     }
     return feats, meta

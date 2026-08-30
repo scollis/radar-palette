@@ -225,6 +225,7 @@ def gate_id(
     skipped, n_noise, n_speck = [], 0, 0
 
     nyquist = _nyquist_velocity(radar, radar_like)
+    params = getattr(radar, "instrument_parameters", None) or {}
 
     temp_source = "none"
     for sweep in range(radar.nsweeps):
@@ -243,6 +244,13 @@ def gate_id(
                 radar.fields[temperature_field]["data"][sl].astype("f8"), np.nan
             )
 
+        prt = None
+        if "prt" in params:
+            values = np.asarray(params["prt"]["data"], dtype="f8")[sl]
+            values = values[np.isfinite(values)]
+            if values.size:
+                prt = float(np.median(values))
+
         feats, fmeta = build_features(
             moments,
             gate_altitude=radar.gate_altitude["data"][sl],
@@ -251,6 +259,9 @@ def gate_id(
             temperature=temperature,
             freezing_level_m=freezing_level_m,
             texture_window=texture_window,
+            elevation=radar.elevation["data"][sl],
+            prt=prt,
+            radar_altitude_m=float(np.asarray(radar.altitude["data"]).ravel()[0]),
         )
         temp_source = fmeta["temp_source"]
 

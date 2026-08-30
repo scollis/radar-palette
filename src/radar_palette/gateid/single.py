@@ -333,6 +333,12 @@ MEMBERSHIP = {
     },
 }
 
+#: SNR above which an incoherent gate is treated as a real distant target
+#: rather than receiver noise, and so is left for the classifier to label as
+#: second trip instead of being gated out as no_scatter.
+TRIP_SNR_MIN = 8.0
+
+
 # [class, feature, (lo, hi)] -> zero the score inside the interval.
 HARD_CONSTRAINTS = [
     # Park et al. 2009: snow is not permitted below the melting layer, and
@@ -365,6 +371,12 @@ HARD_CONSTRAINTS = [
     ["clutter", "z", (45.0, 1e6)],
     ["clutter", "height_km", (4.0, 1e6)],
     ["multi_trip", "z", (35.0, 1e6)],
+    # Geometry, not tuning: where second trip is impossible the class is
+    # forbidden outright. ``trip_possible`` is 1 where the folded beam could
+    # still be in the troposphere and 0 where it could not, so the constraint
+    # zeroes multi_trip on the impossible half. See
+    # :mod:`radar_palette.gateid.multitrip`.
+    ["multi_trip", "trip_possible", (-1e6, 0.5)],
 ]
 
 
@@ -384,6 +396,7 @@ def noise_floor_mask(
     ncp_min=None,
     incoherent_frac=INCOHERENT_TEXTURE_FRAC,
     keep_dbz=None,
+    trip_snr_min=TRIP_SNR_MIN,
 ):
     """Gates that are not a coherent measurement of a scatterer.
 
@@ -431,9 +444,20 @@ def noise_floor_mask(
         mask |= np.isfinite(vt) & (vt > vel_texture_max)
 
     # Normalised phase-coherence test, PRF-independent.
+    #
+    # Incoherence alone does NOT mean no scatterer. Receiver noise and
+    # second-trip echo are both phase-incoherent -- that is the whole reason
+    # the coherence test works -- and the only thing separating them is
+    # returned power. Gating on incoherence without excepting powered gates
+    # made multi_trip unreachable: it scored 1.0 and was then overwritten with
+    # no_scatter before the label was ever emitted.
     if incoherent_frac is not None and "vel_texture_norm" in features:
         vtn = np.asarray(features["vel_texture_norm"], dtype="f8")
-        mask |= np.isfinite(vtn) & (vtn > incoherent_frac)
+        incoherent = np.isfinite(vtn) & (vtn > incoherent_frac)
+        if trip_snr_min is not None and "snr" in features:
+            powered = np.asarray(features["snr"], dtype="f8")
+            incoherent &= ~(np.isfinite(powered) & (powered >= trip_snr_min))
+        mask |= incoherent
 
     if keep_dbz is not None and "z" in features:
         zz = np.asarray(features["z"], dtype="f8")

@@ -97,7 +97,32 @@ git tags via `setuptools-scm`.
   `noise_floor_mask` consumes an SNR field and decides membership, where
   Py-ART's helpers *derive* SNR and noise levels, so they compose.
 
-  65 tests. An end-to-end parity test running one real volume through both object
+  Second trip is identified geometrically as well as by moments, in
+  `gateid.multitrip`. The moment signature -- incoherent phase, low SQI, noisy
+  rho_hv -- is shared with receiver noise and with a sheared updraught, so a
+  purely moment-based test mislabels real convection. Geometry disambiguates:
+  an echo at apparent range `r` in the n-th trip is truly at `r + n * r_max`
+  with `r_max = c * PRT / 2`, and pushing that through the 4/3-earth beam
+  height usually gives an absurd answer. On a BNF C-SAPR2 volume at 1240 Hz,
+  `r_max` is 120.9 km, so an echo seen at 40 km is really at 161 km, which is
+  6 km up at 1.5 deg but 17 km up at 5.5 deg and 35 km at 12 deg. Second trip
+  is therefore vetoed outright above the elevation where the folded beam
+  leaves the troposphere; the ceiling is taken from the volume's own echo top
+  plus a margin rather than assumed. Where no PRT is available nothing is
+  vetoed, so the moment evidence stands alone instead of being silently
+  overridden.
+
+  This also fixes a defect that made `multi_trip` unreachable. The class
+  scored a perfect 1.0 on its ideal signature and was then overwritten with
+  `no_scatter`, because the phase-coherence noise gate treated incoherence as
+  absence of a scatterer. Second trip *is* incoherent -- that is what the
+  coherence test detects -- and returned power is the only thing separating it
+  from noise, so gates above `TRIP_SNR_MIN` are now excepted from that gate.
+  On a real volume `multi_trip` goes from 0.0000% to 0.0339%, and its
+  distribution becomes physically correct: monotonically decreasing with
+  elevation and exactly zero above 6.5 deg, where geometry forbids it.
+
+  80 tests. An end-to-end parity test running one real volume through both object
   families caught two bugs in the `Xradar` wrapper path during development: the
   wrapper stores `sweep_mode` as one whole byte string per sweep rather than
   Py-ART's row of characters, so 14 of 15 sweeps were rejected as unknown scan

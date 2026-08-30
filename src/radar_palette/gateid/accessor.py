@@ -213,6 +213,18 @@ class RadarPaletteDataTreeAccessor:
             if temperature_field and temperature_field in dataset:
                 temperature = np.asarray(dataset[temperature_field].values, dtype="f8")
 
+            prt = None
+            if "prt" in dataset:
+                values = np.asarray(dataset["prt"].values, dtype="f8")
+                values = values[np.isfinite(values)]
+                if values.size:
+                    prt = float(np.median(values))
+            altitude = 0.0
+            for source in (dataset.coords, dataset, tree.to_dataset()):
+                if "altitude" in source:
+                    altitude = float(np.asarray(source["altitude"].values).ravel()[0])
+                    break
+
             features, fmeta = build_features(
                 moments,
                 gate_altitude=np.asarray(dataset.coords["z"].values, dtype="f8"),
@@ -221,6 +233,9 @@ class RadarPaletteDataTreeAccessor:
                 temperature=temperature,
                 freezing_level_m=freezing_level_m,
                 texture_window=texture_window,
+                elevation=np.asarray(dataset["elevation"].values, dtype="f8"),
+                prt=prt,
+                radar_altitude_m=altitude,
             )
             temp_source = fmeta["temp_source"]
 
