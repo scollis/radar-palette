@@ -136,7 +136,16 @@ git tags via `setuptools-scm`.
   was taken; the per-sweep derivation remains the fallback for a genuinely
   single-sweep input such as an RHI, where it is already correct.
 
-  84 tests. An end-to-end parity test running one real volume through both object
+  Temporal priors are applied inside `classify` as score adjusters, after the
+  hard constraints and before the argmax, rather than to its output.
+  `apply_temporal_prior` previously re-derived labels from the returned score
+  matrix, which silently bypassed everything downstream: a prior could label a
+  gate `multi_trip` where the second-trip geometry said no scatterer could
+  exist, and the adjusted answer never saw the noise floor or despeckling.
+  Adjusters are re-checked against the hard constraints, so a prior can add
+  evidence but never lift a class that physics has ruled out.
+
+  88 tests. An end-to-end parity test running one real volume through both object
   families caught two bugs in the `Xradar` wrapper path during development: the
   wrapper stores `sweep_mode` as one whole byte string per sweep rather than
   Py-ART's row of characters, so 14 of 15 sweeps were rejected as unknown scan

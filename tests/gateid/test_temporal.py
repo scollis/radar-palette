@@ -261,3 +261,112 @@ def test_zero_weight_prior_is_a_no_op():
     codes, info = temporal.apply_temporal_prior(feats, [prior], min_run=1)
     assert np.array_equal(codes, base)
     assert info["n_prior_changed"] == 0
+
+
+# --------------------------------------------------------------------------
+# the temporal path must inherit every single-volume rule
+# --------------------------------------------------------------------------
+
+
+def test_prior_cannot_override_a_hard_constraint():
+    """Regression: a prior could resurrect a geometrically impossible class.
+
+    apply_temporal_prior used to re-derive labels from the returned score
+    matrix, which happens after the hard constraints have already been
+    applied and discarded. A prior pushing on multi_trip could therefore
+    label a gate second trip where the geometry said no scatterer could
+    exist. Priors are now score adjusters inside classify(), applied after
+    the constraints and re-checked against them.
+    """
+    n = 6
+    feats = {
+        "z": np.full(n, 5.0),
+        "rhohv": np.full(n, 0.55),
+        "ncp": np.full(n, 0.25),
+        "snr": np.full(n, 20.0),
+        "rhohv_texture": np.full(n, 0.20),
+        "phidp_texture": np.full(n, 90.0),
+        "vel_texture_norm": np.full(n, 0.95),
+        "trip_possible": np.zeros(n),
+    }  # geometry says impossible
+    prior = temporal.temporal_prior(
+        np.full(n, core.NAME_TO_CODE["multi_trip"]),
+        "multi_trip",
+        weight=0.9,
+        veto_margin=1.0,
+    )
+    codes, _ = temporal.apply_temporal_prior(feats, [prior], shape=(1, n))
+    assert core.CLASSES[codes[0]] != "multi_trip"
+
+
+def test_prior_result_is_still_despeckled():
+    """Post-processing applies to the adjusted answer, not just the raw one."""
+    n = 12
+    feats = {
+        "z": np.full(n, 22.0),
+        "rhohv": np.full(n, 0.985),
+        "zdr": np.full(n, 0.5),
+        "snr": np.full(n, 28.0),
+        "temp": np.full(n, 8.0),
+        "rhohv_texture": np.full(n, 0.01),
+        "trip_possible": np.ones(n),
+    }
+    prev = np.full(n, core.NAME_TO_CODE["light_rain"])
+    prev[5] = core.NAME_TO_CODE["ice_snow"]
+    prior = temporal.temporal_prior(prev, "ice_snow", weight=0.9, veto_margin=1.0)
+    codes, info = temporal.apply_temporal_prior(feats, [prior], shape=(1, n), min_run=3)
+    # Whatever the prior did, no one-gate island may survive.
+    for i in range(1, n - 1):
+        if codes[i] != codes[i - 1] and codes[i] != codes[i + 1]:
+            raise AssertionError(f"isolated gate at {i} survived despeckling")
+    assert "n_despeckled" in info
+
+
+def test_prior_result_reports_the_full_single_volume_diagnostics():
+    """The temporal path must not lose the instantaneous path's reporting."""
+    n = 8
+    feats = {
+        "z": np.full(n, 25.0),
+        "rhohv": np.full(n, 0.98),
+        "zdr": np.full(n, 0.5),
+        "snr": np.full(n, 30.0),
+        "temp": np.full(n, 6.0),
+        "trip_possible": np.ones(n),
+    }
+    prior = temporal.temporal_prior(
+        np.full(n, core.NAME_TO_CODE["ice_snow"]), "ice_snow", weight=0.1
+    )
+    _, info = temporal.apply_temporal_prior(feats, [prior], shape=(1, n))
+    for key in (
+        "scores",
+        "order",
+        "margin",
+        "n_noise_floor",
+        "n_despeckled",
+        "ineligible",
+        "n_prior_changed",
+        "n_score_adjusted",
+    ):
+        assert key in info, key
+
+
+def test_zero_weight_prior_is_identical_to_no_prior():
+    """The temporal path with an inert prior must equal the single-volume one."""
+    n = 20
+    feats = {
+        "z": np.full(n, 35.0),
+        "rhohv": np.full(n, 0.985),
+        "zdr": np.full(n, 0.6),
+        "snr": np.full(n, 30.0),
+        "temp": np.full(n, 10.0),
+        "rhohv_texture": np.full(n, 0.01),
+        "trip_possible": np.ones(n),
+    }
+    base, base_info = core.classify(feats, shape=(2, 10))
+    prior = temporal.temporal_prior(
+        np.full(n, core.NAME_TO_CODE["ice_snow"]), "ice_snow", weight=0.0
+    )
+    codes, info = temporal.apply_temporal_prior(feats, [prior], shape=(2, 10))
+    assert np.array_equal(base, codes)
+    assert info["n_prior_changed"] == 0
+    assert info["n_noise_floor"] == base_info["n_noise_floor"]

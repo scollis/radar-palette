@@ -566,6 +566,7 @@ def classify(
     despeckle_keep_dbz=30.0,
     incoherent_frac=INCOHERENT_TEXTURE_FRAC,
     min_coverage=MIN_EVIDENCE_COVERAGE,
+    score_adjusters=(),
 ):
     """Classify gates from a dict of 1-D feature arrays.
 
@@ -634,6 +635,29 @@ def classify(
         v = np.asarray(features[key], dtype="f8")
         scores[(v >= lo) & (v <= hi), order.index(cls)] = 0.0
 
+    # Score adjustments (e.g. temporal priors) are applied HERE: after the
+    # hard constraints, so a prior can never resurrect a class that physics
+    # forbids, and before the argmax, so everything downstream -- the
+    # unclassified rule, the noise floor and despeckling -- applies to the
+    # adjusted answer exactly as it does to the instantaneous one.
+    n_adjusted = 0
+    if score_adjusters:
+        part0 = np.partition(scores, -2, axis=1) if scores.shape[1] > 1 else scores
+        margin0 = scores.max(axis=1) - (
+            part0[:, -2] if scores.shape[1] > 1 else np.zeros(n)
+        )
+        before_scores = scores
+        for adjust in score_adjusters:
+            scores = adjust(scores, order, margin0)
+        # Re-apply the constraints: an adjuster is not permitted to lift a
+        # class the geometry or thermodynamics ruled out.
+        for cls, key, (lo, hi) in hard_constraints:
+            if cls not in order or key not in available:
+                continue
+            v = np.asarray(features[key], dtype="f8")
+            scores[(v >= lo) & (v <= hi), order.index(cls)] = 0.0
+        n_adjusted = int((scores != before_scores).any(axis=1).sum())
+
     best = scores.argmax(axis=1)
     top = scores[np.arange(n), best]
     part = np.partition(scores, -2, axis=1) if scores.shape[1] > 1 else scores
@@ -679,6 +703,7 @@ def classify(
         "margin": top - second,
         "n_noise_floor": n_noise,
         "n_despeckled": n_speck,
+        "n_score_adjusted": n_adjusted,
         "ineligible": [c for c, ok in zip(order, covered, strict=True) if not ok],
     }
     return codes, info

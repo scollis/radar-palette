@@ -328,6 +328,18 @@ def temporal_prior(previous_labels, target_class, weight=0.15, veto_margin=0.5):
 def apply_temporal_prior(features, priors, shape=None, **classify_kwargs):
     """Classify with one or more one-way temporal priors applied to the scores.
 
+    The priors are handed to :func:`radar_palette.gateid.single.classify` as
+    score adjusters rather than being applied to its output. That ordering is
+    the whole point: an adjuster runs *after* the hard constraints and *before*
+    the argmax, so a prior cannot resurrect a class that geometry or
+    thermodynamics has forbidden, and every downstream rule -- the
+    unclassified rule, the noise floor, despeckling -- applies to the adjusted
+    answer exactly as it does to the instantaneous one.
+
+    An earlier version re-derived labels from the returned score matrix, which
+    silently bypassed all of that: a prior could label a gate ``multi_trip``
+    where the second-trip geometry said no scatterer could exist.
+
     Parameters
     ----------
     features : dict
@@ -344,24 +356,14 @@ def apply_temporal_prior(features, priors, shape=None, **classify_kwargs):
     codes : ndarray of int
     info : dict
         As from the single-volume classifier, plus ``n_prior_changed``: how
-        many gates the priors moved. If that number is large, the priors are
-        not tie-breaking, they are deciding -- which is the failure mode to
-        watch for.
+        many gates the priors moved relative to classifying without them. If
+        that number is large the priors are not tie-breaking, they are
+        deciding -- which is the failure mode to watch for.
     """
-    base_codes, info = single.classify(features, shape=shape, **classify_kwargs)
-    scores, order = info["scores"], info["order"]
-    adjusted = scores
-    for prior in priors:
-        adjusted = prior(adjusted, order, info["margin"])
-
-    best = adjusted.argmax(axis=1)
-    top = adjusted[np.arange(adjusted.shape[0]), best]
-    codes = np.array([single.NAME_TO_CODE[order[i]] for i in best], dtype="i2")
-    codes[top <= 0] = 0
-    # Never let a prior resurrect a gate the noise floor rejected.
-    floor = single.NAME_TO_CODE["no_scatter"]
-    codes[base_codes == floor] = floor
-
+    baseline, _ = single.classify(features, shape=shape, **classify_kwargs)
+    codes, info = single.classify(
+        features, shape=shape, score_adjusters=tuple(priors), **classify_kwargs
+    )
     info = dict(info)
-    info["n_prior_changed"] = int((codes != base_codes).sum())
+    info["n_prior_changed"] = int((codes != baseline).sum())
     return codes, info
