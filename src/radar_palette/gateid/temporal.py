@@ -59,15 +59,31 @@ References
 ----------
 Hubbert, J. C., M. Dixon, and S. M. Ellis, 2009: Weather radar ground clutter.
 Part II: Real-time identification and filtering. *J. Atmos. Oceanic Technol.*,
-26, 1181-1197.
+26, 1181-1197, doi:10.1175/2009JTECHA1160.1. The clutter-phase-alignment
+weight that breaks ties in one direction only, cited for the asymmetry of
+:func:`temporal_prior`. Note CPA is an intra-dwell statistic over ~64 ms, not
+a scan-to-scan one.
+
+Krause, J. M., 2016: A simple algorithm to discriminate between meteorological
+and nonmeteorological radar echoes. *J. Atmos. Oceanic Technol.*, 33,
+1875-1885, doi:10.1175/JTECH-D-15-0239.1. MetSignal, and the only published
+per-gate cross-time rule found: a previous-volume reflectivity test that can
+promote non-meteorological to meteorological but never demote.
 
 Lukach, M., D. Dufton, J. Crosier, J. M. Hampton, L. Bennett, and R. R. Neely
 III, 2021: Hydrometeor classification of quasi-vertical profiles of polarimetric
 radar measurements using a top-down iterative hierarchical clustering method.
-*Atmos. Meas. Tech.*, 14, 1075-1098, doi:10.5194/amt-14-1075-2021.
+*Atmos. Meas. Tech.*, 14, 1075-1098, doi:10.5194/amt-14-1075-2021. Source of
+the criticism that existing schemes ignore temporal dependence, which their
+Sect. 6 leaves "unexplored".
 
-Zhang, J., and Coauthors, 2020: Multi-Radar Multi-Sensor quality control.
-*J. Atmos. Oceanic Technol.*
+Zhang, S., X. Huang, J. Min, Z. Chu, X. Zhuang, and H. Zhang, 2020: Improved
+fuzzy logic method to distinguish between meteorological and non-meteorological
+echoes using C-band polarimetric radar data. *Atmos. Meas. Tech.*, 13, 537-551,
+doi:10.5194/amt-13-537-2020. Reimplemented the MetSignal cross-time rule and
+then removed it, having documented anomalous propagation propagating forward
+through it -- the cautionary result behind this module's one-way,
+evidence-gated design.
 """
 
 from __future__ import annotations
