@@ -6,6 +6,150 @@ git tags via `setuptools-scm`.
 
 ## [Unreleased]
 
+### Added
+
+- **`radar_palette.gateid`: per-gate classification of the dominant scatterer.**
+  Two subpackages over one physics core. `gateid.single` classifies a volume from
+  uncorrected polarimetric moments with no reference to any other volume;
+  `gateid.temporal` provides tooling to measure and exploit persistence between
+  volumes. `gate_id()` accepts a Py-ART `Radar` or an xradar `DataTree` through
+  `radar_palette.io.flavors` and returns the family it was given.
+
+  The classifier targets chains that identify gates *before* correction, where the
+  gate ID is the control flow rather than a diagnostic: it decides which gates reach
+  phase processing, attenuation correction, dealiasing and rainfall estimation.
+
+  Three design decisions came out of profiling an operational configuration on
+  4.75 million ARM BNF C-SAPR2 gates:
+
+  - **Scores are normalised by attainable weight budget.** In a plain additive fuzzy
+    scheme a class can only win if the evidence it *could* muster is competitive.
+    Measured on that configuration, `rain` reached at most 3.0 without a sounding
+    while `snow` reached 4.0, so snow took 84% of gates above 40 dBZ in warm-season
+    convection. No membership-function tuning fixes that; the budget is the bug.
+  - **A class must have its evidence present to be eligible.** Budget normalisation
+    alone lets a class score a perfect 1.0 on two of five terms and tie one that
+    satisfied all of its own, so a gate with no range or spectrum width could be
+    called clutter on rho_hv alone.
+  - **Gates with no positive evidence are `unclassified`, never class zero.**
+    `argmax` breaks ties toward index 0, silently.
+
+  Second-trip echo and receiver noise are identified by phase coherence rather than
+  a tuned threshold. A magnetron randomises transmit phase pulse to pulse, so both
+  have radial velocity uniformly distributed over the Nyquist interval and a texture
+  of `v_nyq/sqrt(3)`. Measured on BNF RHIs at 16.30 m/s Nyquist: noise 8.96 m/s
+  against coherent precipitation 0.74 m/s, a 12x separation, with a cut at 0.32 of
+  the limit rejecting 100% of noise while keeping 99.9% of gates above 25 dBZ.
+
+  Biological scatterers are separated using the depolarization ratio computable from
+  simultaneous-transmit moments (Ryzhkov et al. 2017, their Eq. 6), which no
+  cross-polar channel is needed for: biology sits at -5.3 dB against precipitation
+  and anvil ice both near -19.5 dB.
+
+  `gateid.temporal` is deliberately measurement-first. A literature survey found no
+  published transition matrix or persistence probability for hydrometeor classes and
+  no Markov, HMM, CRF or MRF hydrometeor classifier of any kind, so the module
+  supplies `transition_matrix`, `persistence_skill` and `composition_drift` as
+  standalone measurements before any model. Its `temporal_prior` is one-way and
+  vetoable rather than a symmetric smoother, following the two operational
+  precedents; a symmetric alternative is the version documented to lock in and
+  propagate errors. Masking of no-echo classes is on by default, since roughly 80%
+  of a scan is empty sky and an unmasked matrix reports near-perfect persistence for
+  trivial reasons.
+
+  Available three ways: as a function, as an accessor method, and through the
+  usual flavour handling. Importing `radar_palette` registers a `radarpalette`
+  accessor on `xarray.DataTree`, alongside the `xradar` and `pyart` accessors,
+  so the classifier reads as a method on an xradar object:
+
+  ```python
+  import xradar as xd
+  import radar_palette
+
+  xrd = xd.io.open_cfradial1_datatree("cfrad.20260820_041403.nc")
+  xrd.radarpalette.gateid(freezing_level_m=4670.0)
+  xrd["sweep_0"]["gate_id"]
+  ```
+
+  The accessor mutates the tree it is called on and returns it. It classifies
+  the caller's own sweeps rather than delegating to the functional path,
+  because that path converts through CfRadial and the round trip is not
+  shape-preserving: on an ARM BNF C-SAPR2 volume a 931-ray sweep came back with
+  930 rays, so copying results into the caller's tree would have misaligned
+  every gate in that sweep. Both routes share one physics core and a test
+  asserts their per-class fractions agree.
+
+  Where Py-ART already provides a function, it is used rather than
+  reimplemented. The folding-aware velocity texture delegates to
+  `pyart.util.angular_texture_2d`; on a real BNF sweep the delegated and
+  previous implementations agreed to a median absolute difference of 7e-15,
+  and a test pins the equivalence so a future edit cannot quietly fork from
+  upstream. The only added behaviour is NaN propagation, since Py-ART
+  convolves with a symmetric boundary and lets a NaN smear through the window.
+
+  Three functions here deliberately do *not* delegate, and each says why in
+  its docstring. `texture` is 2-D on a bare array, where `pyart.util.texture`
+  is 1-D along the ray, takes a `Radar`, hardcodes an 11-point window and
+  prints to stdout. `despeckle` dissolves short runs in the *categorical*
+  class field, where `pyart.correct.despeckle_field` thresholds a
+  *continuous* field into a `GateFilter` -- different question, and the
+  Py-ART one remains the right tool for speckle in reflectivity.
+  `noise_floor_mask` consumes an SNR field and decides membership, where
+  Py-ART's helpers *derive* SNR and noise levels, so they compose.
+
+  Second trip is identified geometrically as well as by moments, in
+  `gateid.multitrip`. The moment signature -- incoherent phase, low SQI, noisy
+  rho_hv -- is shared with receiver noise and with a sheared updraught, so a
+  purely moment-based test mislabels real convection. Geometry disambiguates:
+  an echo at apparent range `r` in the n-th trip is truly at `r + n * r_max`
+  with `r_max = c * PRT / 2`, and pushing that through the 4/3-earth beam
+  height usually gives an absurd answer. On a BNF C-SAPR2 volume at 1240 Hz,
+  `r_max` is 120.9 km, so an echo seen at 40 km is really at 161 km, which is
+  6 km up at 1.5 deg but 17 km up at 5.5 deg and 35 km at 12 deg. Second trip
+  is therefore vetoed outright above the elevation where the folded beam
+  leaves the troposphere; the ceiling is taken from the volume's own echo top
+  plus a margin rather than assumed. Where no PRT is available nothing is
+  vetoed, so the moment evidence stands alone instead of being silently
+  overridden.
+
+  This also fixes a defect that made `multi_trip` unreachable. The class
+  scored a perfect 1.0 on its ideal signature and was then overwritten with
+  `no_scatter`, because the phase-coherence noise gate treated incoherence as
+  absence of a scatterer. Second trip *is* incoherent -- that is what the
+  coherence test detects -- and returned power is the only thing separating it
+  from noise, so gates above `TRIP_SNR_MIN` are now excepted from that gate.
+  On a real volume `multi_trip` goes from 0.0000% to 0.0339%, and its
+  distribution becomes physically correct: monotonically decreasing with
+  elevation and exactly zero above 6.5 deg, where geometry forbids it.
+
+  The second-trip ceiling is derived from the whole volume, not from the
+  sweep being classified. A 1.5 deg sweep's own echo top describes how high
+  its beam reaches rather than how tall the storm is: on a BNF volume whose
+  storm reached 17.0 km, sweep 0 reported 3.85 km, giving a ceiling of 6.85 km
+  and a cutoff at 2.65 deg. That vetoed second trip beyond about 60 km
+  apparent range on precisely the low sweeps where second trip is most likely.
+  Using the volume echo top gives a 19.99 km ceiling and an 8.80 deg cutoff.
+  In a southwest annulus at 90-120 km apparent range, independently identified
+  as folded echo, multi_trip goes from 0.0% to 22.2% and rain from 9.2% to
+  3.3%, while the genuine cells inside 50 km keep their rain labels. Reported
+  as `trip_ceiling_m` and `trip_ceiling_source` so a reader can see which path
+  was taken; the per-sweep derivation remains the fallback for a genuinely
+  single-sweep input such as an RHI, where it is already correct.
+
+  84 tests. An end-to-end parity test running one real volume through both object
+  families caught two bugs in the `Xradar` wrapper path during development: the
+  wrapper stores `sweep_mode` as one whole byte string per sweep rather than
+  Py-ART's row of characters, so 14 of 15 sweeps were rejected as unknown scan
+  types; and it does not surface Nyquist velocity through `instrument_parameters`,
+  so the phase-coherence test silently vanished. Backend disagreement fell from 93%
+  of gates to 0.007%.
+
+  One upstream difference is documented rather than worked around: xradar's
+  CfRadial1 reader returned 13,953 rays where Py-ART returned 13,954 on the
+  reference volume, and the two disagree far more on RHI files (89 against 7 rays),
+  so the parity test requires a multi-sweep PPI and compares per-class fractions
+  rather than exact counts.
+
 ### Fixed
 
 - **Split-cut selection was not reproducible across processes.** `census_sweep` fell
