@@ -123,6 +123,152 @@ class RadarPaletteDataTreeAccessor:
         self.datatree.attrs["gateid_meta"] = meta
         return self.datatree
 
+    def mdsreplace(
+        self,
+        excluded,
+        field_name=None,
+        output_field_name=None,
+        gate_id_field="gate_id",
+        no_return_code=None,
+        slope_db_per_decade=None,
+        percentile=50.0,
+        degree=None,
+        min_range_m=0.0,
+        min_range_bins=6,
+    ):
+        """Replace excluded gates with the fitted minimum detectable signal.
+
+        Fills gates that carry no usable measurement with the floor the radar
+        would have reported, so objective analysis has something to grid down
+        to instead of extrapolating an isolated echo into empty space. See
+        :func:`radar_palette.gateid.mdsreplace` for the fit.
+
+        Parameters
+        ----------
+        excluded : mapping of str to ndarray
+            Sweep name -> boolean mask of gates to replace, on that sweep's own
+            geometry. A mapping is required rather than a
+            :class:`pyart.filters.GateFilter` for the same reason this accessor
+            does not round-trip: Py-ART and xradar disagree on ray count and
+            ordering, so a flat volume-wide filter cannot be trusted to align
+            with this tree. Sweeps absent from the mapping are left alone.
+        gate_id_field : str, optional
+            Variable holding the gate classification.
+        no_return_code : int, optional
+            Class code marking no scatterer. Defaults to ``no_scatter``.
+        slope_db_per_decade, percentile, degree, min_range_m, min_range_bins
+            Passed to :func:`radar_palette.gateid.mdsreplace.fit_mds`.
+
+        Returns
+        -------
+        xarray.DataTree
+            The same tree, carrying the filled field and ``<output>_mds``, with
+            the fit recorded in ``tree.attrs['mdsreplace_meta']``.
+
+        Raises
+        ------
+        TypeError
+            If ``excluded`` is not a mapping, which most likely means a
+            ``GateFilter`` was passed.
+        ValueError
+            If a named sweep lacks the required fields, or a mask does not
+            match its sweep's shape.
+
+        Examples
+        --------
+        Fill the gates the gate ID rejected::
+
+            tree.radarpalette.gateid(freezing_level_m=4670.0)
+            keep = tree["sweep_0"]["gate_id"].isin([5, 6, 7, 8, 9, 10])
+            tree.radarpalette.mdsreplace({"sweep_0": ~keep.values})
+        """
+        import numpy as np
+        import xarray as xr
+
+        from radar_palette.gateid.features import resolve_fields
+        from radar_palette.gateid.mdsreplace import (
+            RANGE_SQUARE_SLOPE_DB,
+            fit_mds,
+            replace_with_mds,
+        )
+        from radar_palette.gateid.single import NAME_TO_CODE
+
+        if not hasattr(excluded, "items"):
+            raise TypeError(
+                "excluded must map sweep names to boolean gate masks on this "
+                "tree's own geometry, not a GateFilter"
+            )
+        if slope_db_per_decade is None:
+            slope_db_per_decade = RANGE_SQUARE_SLOPE_DB
+        no_return_code = (
+            NAME_TO_CODE["no_scatter"] if no_return_code is None else no_return_code
+        )
+        fits, replaced, processed = {}, 0, {}
+        for key in self.datatree.children:
+            if not str(key).startswith("sweep") or str(key) not in excluded:
+                continue
+            dataset = self.datatree[key].to_dataset()
+            resolved, _ = resolve_fields(dataset.data_vars)
+            if "z" not in resolved:
+                raise ValueError(f"{key} has no reflectivity field")
+            source_name = field_name or resolved["z"]
+            if source_name not in dataset or gate_id_field not in dataset:
+                raise ValueError(f"{key} is missing {source_name!r} or {gate_id_field!r}")
+            target_name = output_field_name or source_name
+            mask = np.asarray(excluded[str(key)], dtype=bool)
+            source = dataset[source_name]
+            if mask.shape != source.shape:
+                raise ValueError(f"excluded mask shape does not match {key}/{source_name}")
+            mds, info = fit_mds(
+                source.values,
+                dataset["range"].values,
+                np.asarray(dataset[gate_id_field].values) == no_return_code,
+                slope_db_per_decade=slope_db_per_decade,
+                percentile=percentile,
+                degree=degree,
+                min_range_m=min_range_m,
+                min_range_bins=min_range_bins,
+            )
+            values = replace_with_mds(source.values, mds, mask)
+            attrs = dict(source.attrs)
+            attrs.update(
+                {
+                    "long_name": (
+                        "Reflectivity with excluded gates replaced by "
+                        "minimum detectable signal"
+                    ),
+                    "comment": (
+                        "Excluded gates replaced by the sweep's fitted "
+                        "no_scatter floor; measurements are unchanged."
+                    ),
+                    "ancillary_variables": f"{gate_id_field} {target_name}_mds",
+                }
+            )
+            self.datatree[key].dataset = dataset.assign(
+                {
+                    target_name: xr.DataArray(values, dims=source.dims, attrs=attrs),
+                    f"{target_name}_mds": xr.DataArray(
+                        mds, dims=source.dims,
+                        attrs={
+                            "long_name": "Fitted minimum detectable signal",
+                            "units": source.attrs.get("units", "dBZ"),
+                        },
+                    ),
+                }
+            )
+            count = int(mask.sum())
+            fits[str(key)] = dict(n_replaced=count, **info)
+            processed[str(key)] = [target_name, f"{target_name}_mds"]
+            replaced += count
+        self.datatree.attrs["mdsreplace_meta"] = {
+            "gate_id_field": gate_id_field,
+            "no_return_code": int(no_return_code),
+            "n_replaced": replaced,
+            "fits": fits,
+            "processed_sweeps": processed,
+        }
+        return self.datatree
+
     def _classify_sweeps(
         self,
         freezing_level_m=None,

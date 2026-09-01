@@ -57,6 +57,8 @@ from radar_palette.gateid.accessor import (
 )
 from radar_palette.gateid.entry_points import gate_id, meteorological_gatefilter
 from radar_palette.gateid.features import build_features, resolve_fields
+from radar_palette.gateid.mdsreplace import fit_mds, replace_with_mds
+from radar_palette.gateid.mdsreplace_api import mdsreplace
 from radar_palette.gateid.single import (
     CLASSES,
     FROZEN,
@@ -99,11 +101,14 @@ __all__ = [
     "depolarization_ratio",
     "despeckle",
     "features",
+    "fit_mds",
     "gate_id",
+    "mdsreplace",
     "meteorological_gatefilter",
     "noise_floor_mask",
     "persistence_skill",
     "register_accessors",
+    "replace_with_mds",
     "resolve_fields",
     "single",
     "temporal",
