@@ -135,6 +135,7 @@ class RadarPaletteDataTreeAccessor:
         degree=None,
         min_range_m=0.0,
         min_range_bins=6,
+        never_increase=True,
     ):
         """Replace excluded gates with the fitted minimum detectable signal.
 
@@ -158,6 +159,9 @@ class RadarPaletteDataTreeAccessor:
             Class code marking no scatterer. Defaults to ``no_scatter``.
         slope_db_per_decade, percentile, degree, min_range_m, min_range_bins
             Passed to :func:`radar_palette.gateid.mdsreplace.fit_mds`.
+        never_increase : bool, optional
+            Keep the measured value at any excluded gate already weaker than
+            the fitted floor, so the fill can never add apparent signal.
 
         Returns
         -------
@@ -229,7 +233,9 @@ class RadarPaletteDataTreeAccessor:
                 min_range_m=min_range_m,
                 min_range_bins=min_range_bins,
             )
-            values = replace_with_mds(source.values, mds, mask)
+            values = replace_with_mds(
+                source.values, mds, mask, never_increase=never_increase
+            )
             attrs = dict(source.attrs)
             attrs.update(
                 {
@@ -264,6 +270,7 @@ class RadarPaletteDataTreeAccessor:
             "gate_id_field": gate_id_field,
             "no_return_code": int(no_return_code),
             "n_replaced": replaced,
+            "never_increase": bool(never_increase),
             "fits": fits,
             "processed_sweeps": processed,
         }

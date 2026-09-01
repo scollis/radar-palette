@@ -203,6 +203,29 @@ def test_replacement_leaves_unmeasured_included_gates_masked():
     assert out[0, 0] == 10.0
 
 
+def test_replacement_never_adds_apparent_signal():
+    """A gate already weaker than the floor keeps its measured value.
+
+    Found on WSR-88D Level II, which is thresholded before the file is written
+    (~71% of gates masked). The surviving "no-return" population is the weakest
+    echo that passed the threshold, not the receiver noise floor, so the fitted
+    floor can land above real weak echo: on three KHTX/KVNX volumes the naive
+    fill *raised* the median of the replaced gates by 12 to 17 dB.
+    """
+    data = np.ma.masked_array([[10.0, -50.0, np.nan]], mask=[[False, False, True]])
+    mds = np.full((1, 3), -30.0)
+    excluded = np.ones((1, 3), dtype=bool)
+
+    out = replace_with_mds(data, mds, excluded)
+    assert out[0, 0] == -30.0  # strong echo pulled down to the floor
+    assert out[0, 1] == -50.0  # already weaker: measurement kept
+    assert out[0, 2] == -30.0  # never measured: takes the floor
+    assert not np.ma.getmaskarray(out).any()
+
+    louder = replace_with_mds(data, mds, excluded, never_increase=False)
+    assert louder[0, 1] == -30.0  # opt out and the value is raised
+
+
 def test_replacement_refuses_a_non_finite_floor():
     data = np.ma.masked_array([[10.0, 20.0]])
     with pytest.raises(ValueError, match="finite"):
@@ -327,6 +350,31 @@ def test_a_contaminated_sweep_falls_back_instead_of_raising_the_floor():
 
     mds = np.ma.filled(out.fields["filled_mds"]["data"], np.nan)
     assert np.allclose(mds[sl], truth[None, :], atol=1.0)
+
+
+def test_pyart_entry_point_never_raises_a_replaced_gate():
+    """End to end: no excluded gate may come out louder than it went in."""
+    pyart = pytest.importorskip("pyart")
+    from radar_palette.gateid import mdsreplace
+
+    radar, _ = _radar()
+    # Weak echo well below the floor, labelled as a target to be removed.
+    data = radar.fields["reflectivity"]["data"]
+    data[:, 30:34] = -70.0
+    radar.fields["gate_id"]["data"][:, 30:34] = 2  # clutter
+    before = np.ma.filled(data.astype("f8"), np.nan).copy()
+
+    gatefilter = pyart.filters.GateFilter(radar)
+    gatefilter.exclude_equal("gate_id", 2)
+    excluded = np.asarray(gatefilter.gate_excluded, dtype=bool)
+
+    out, meta = mdsreplace(radar, gatefilter, output_field_name="filled")
+    after = np.ma.filled(out.fields["filled"]["data"].astype("f8"), np.nan)
+
+    assert np.all(after[excluded] <= before[excluded] + 1e-9)
+    assert np.allclose(after[:, 30:34], -70.0)
+    assert meta["n_kept_already_below_mds"] == int(excluded.sum())
+    assert meta["never_increase"] is True
 
 
 def test_pyart_entry_point_requires_a_gate_id_field():

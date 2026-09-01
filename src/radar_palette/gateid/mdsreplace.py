@@ -125,6 +125,7 @@ def fit_mds(
         contaminated by real echo rather than describing the noise floor. Pass
         ``None`` to accept any fit. Ignored when ``degree`` is given.
 
+
     Returns
     -------
     mds : ndarray
@@ -214,12 +215,38 @@ def fit_mds(
     return np.broadcast_to(curve, values.shape).copy(), meta
 
 
-def replace_with_mds(data, mds, excluded):
+def replace_with_mds(data, mds, excluded, never_increase=True):
     """Replace excluded gates with the MDS, leaving every other gate alone.
 
     Excluded gates are also unmasked, since they now hold a defined value: the
     point of the exercise is to give a gridding weight function something to
     grid down to, which a masked gate does not provide.
+
+    Parameters
+    ----------
+    data : array_like
+        Reflectivity in dBZ. Masked arrays are accepted.
+    mds : array_like
+        The fitted floor, broadcastable to ``data``.
+    excluded : array_like of bool
+        Gates to replace, broadcastable to ``data``.
+    never_increase : bool, optional
+        Keep the measured value wherever it is already weaker than the fitted
+        floor, so removing an unwanted target can never *add* apparent signal.
+
+        This matters on censored archives. WSR-88D Level II reflectivity is
+        thresholded before the file is written -- around 71% of gates in the
+        BNF-era KHTX volumes are masked -- so the surviving "no-return"
+        population is the weakest echo that passed the threshold rather than
+        the receiver noise floor, and the floor fitted from it can land above
+        real weak echo. On three such volumes the naive fill *raised* the
+        median of the replaced gates by 12 to 17 dB. The measured value is the
+        safer of the two in that case, and it is always a real observation.
+
+    Returns
+    -------
+    numpy.ma.MaskedArray
+        ``data`` with excluded gates replaced.
     """
     source = np.ma.asarray(data)
     values = np.ma.filled(source, np.nan).astype("f8", copy=True)
@@ -227,7 +254,14 @@ def replace_with_mds(data, mds, excluded):
     excluded = np.broadcast_to(np.asarray(excluded, dtype=bool), values.shape)
     if not np.isfinite(mds[excluded]).all():
         raise ValueError("MDS values must be finite at every excluded gate")
-    values[excluded] = mds[excluded]
+
+    fill = excluded
+    if never_increase:
+        with np.errstate(invalid="ignore"):
+            already_weaker = np.isfinite(values) & (values <= mds)
+        fill = excluded & ~already_weaker
+    values[fill] = mds[fill]
+
     mask = np.ma.getmaskarray(source).copy()
     mask[excluded] = False
     if not np.isfinite(values[~mask]).all():

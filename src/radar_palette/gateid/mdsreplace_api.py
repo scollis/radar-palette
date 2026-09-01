@@ -41,6 +41,7 @@ def mdsreplace(
     min_range_m=0.0,
     min_range_bins=6,
     per_sweep=True,
+    never_increase=True,
     output_flavor=None,
     replace_existing=True,
 ):
@@ -78,6 +79,11 @@ def mdsreplace(
         Fit each sweep separately. Sweeps whose own no-return population is too
         sparse fall back to a whole-volume fit, which is recorded per sweep in
         the returned metadata rather than being applied silently.
+    never_increase : bool, optional
+        Keep the measured value at any excluded gate already weaker than the
+        fitted floor, so the fill can never add apparent signal. See
+        :func:`radar_palette.gateid.mdsreplace.replace_with_mds`; this matters
+        on censored archives such as WSR-88D Level II.
     output_flavor : RadarFlavor or str or None, optional
         Family to return. Defaults to mirroring the input.
     replace_existing : bool, optional
@@ -153,7 +159,16 @@ def mdsreplace(
         fits.append(dict(sweep=sweep, scope=scope, n_replaced=count, **info))
         replaced += count
 
-    data = replace_with_mds(radar.fields[source_name]["data"], mds, excluded)
+    original = np.ma.filled(
+        radar.fields[source_name]["data"].astype("f8"), np.nan
+    )
+    data = replace_with_mds(
+        radar.fields[source_name]["data"], mds, excluded, never_increase=never_increase
+    )
+    with np.errstate(invalid="ignore"):
+        kept_weaker = int(
+            (excluded & np.isfinite(original) & (original <= mds)).sum()
+        )
     source = dict(radar.fields[source_name])
     source.update(
         {
@@ -190,6 +205,8 @@ def mdsreplace(
         "gate_id_field": gate_id_field,
         "no_return_code": int(no_return_code),
         "n_replaced": replaced,
+        "n_kept_already_below_mds": kept_weaker if never_increase else 0,
+        "never_increase": bool(never_increase),
         "fits": fits,
     }
     return to_radar_flavor(radar, output_flavor), meta
