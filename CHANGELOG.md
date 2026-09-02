@@ -8,6 +8,86 @@ git tags via `setuptools-scm`.
 
 ### Added
 
+- **`radar_palette.phase`: differential-phase processing and bounded KDP retrieval.**
+  Four independently testable stages on plain `(n_rays, n_gates)` arrays:
+  `phase.system` (system offset), `phase.unfold` (fold repair), `phase.bounds`
+  (two-sided KDP bounds from Z and ZDR) and `phase.linear_program` (the
+  retrieval).
+
+  The governing assumption is that all KDP is a retrieval: what a receiver
+  reports is `Phi_propagation + delta + non-uniform beam filling + noise`, and
+  nothing working on one ray of phase can separate those. So the estimator
+  *bounds* KDP using Z and ZDR, which are direct measurements carrying no
+  backscatter-phase term, rather than trying to estimate `delta`.
+
+  The retrieval follows the Huang, Zhang, Zhao & Giangrande (2016) architecture,
+  not the Giangrande et al. (2013) one: a two-sided box `KDP_L <= M x <= KDP_U`
+  replaces one-sided non-negative monotonicity, which is a `+M / -M` block pair
+  appended to the constraint matrix. Four deliberate departures, each from a
+  specific failure:
+
+  - **No curvature or total-variation penalty in the objective**, not even as an
+    option. Neither source paper has one, and a TV penalty has a
+    piecewise-constant solution family --- it prefers staircase KDP fields rather
+    than merely tolerating them.
+  - **The reported KDP is exactly the constrained quantity**, `M x` with the same
+    `M` the box constrains, so the bounds hold on the output by construction. The
+    cost is that Giangrande's coupled strong-monotonicity post-filter is not
+    applied, since applying it would break that guarantee.
+  - **The sign policy is altitude-conditioned, not global.** Huang 2016 is
+    rain-only and enforces `KDP_L >= 0` everywhere, which cannot represent the
+    negative KDP of vertically aligned ice. `'rain_nonnegative'` reproduces the
+    published behaviour and is not the default.
+  - **The self-consistency constraint is released outside a rain mask**, per
+    Huang's own note that such methods fail "in critical situations such as hail
+    cores where these methods must rigidly adhere to consistency relationship
+    constraints that do not apply".
+
+  `smoothing_km` is a required argument with no default, in kilometres. At ARM
+  BNF the along-range decorrelation length is 0.75 km in Z and 0.98 km in ZDR, so
+  a smoothing length near 1 km is matched to the field being retrieved and 4-5 km
+  is not; Huang et al. used 2 km. The realised length after quantisation to an
+  odd gate count is returned in the metadata.
+
+  Self-consistency coefficients were computed for this package with a T-matrix
+  forward model (rustmatrix 2.2.0, Brandes/Zhang/Vivekanandan 2002 shapes, 10
+  degC, normalized gamma PSD) rather than adopted from a published fit. `KDP/z_H`
+  proved independent of drop concentration to 2e-13 relative, as it must be. The
+  same fit runs 1.05x to 1.34x above Gourley et al. (2009) Table 4 over ZDR
+  0.5-3 dB at C band, and that disagreement between two credible forward models
+  is the direct justification for the wide default box tolerance factors.
+
+  Two properties were established by measurement during development and are
+  encoded as tests rather than assumed:
+
+  - **Offset invariance is exact (2.9e-13) only when every gate in a derivative
+    window carries data.** An unweighted gate leaves a free phase variable, the
+    linear program is degenerate over it, and an LP optimum sits on a vertex ---
+    so the solver returns a *box edge* as if it were a retrieval. Measured on a
+    5-gate gap, well under the filter length, the reported KDP moved by 20 deg/km
+    under a constant shift of the input phase. Full window support is therefore
+    the default, at a real cost in coverage (5% random dropout took reported
+    gates from 390/400 to 254/400).
+  - **Folds must be distinguished from backscatter-phase excursions by
+    persistence, not step size.** On a KHTX WSR-88D volume, 1334 of 350861
+    gate-to-gate steps exceeded 180 degrees but only 79 persisted;
+    `numpy.unwrap` would have corrected all 1334.
+
+  `system_phidp` exposes the per-ray estimate and a ray-to-ray consistency
+  diagnostic as first-class outputs. A single sweep-level offset is applied by
+  default, on the argument that no hardware mechanism varies the system offset
+  within one sweep --- and it is worth knowing that the diagnostic itself came
+  out the other way on both volumes tested, most likely because the block
+  estimator samples different ranges on different rays. See the module docstring.
+  For a KDP retrieval the choice is immaterial: a per-ray additive constant is
+  annihilated by a range derivative.
+
+  wradlib is not a declared dependency, so the three system-phase estimators are
+  reimplemented natively from the wradlib algorithms rather than imported.
+
+  There is no Py-ART / xradar object-flavour entry point or accessor yet, unlike
+  `radar_palette.gateid`; that layer is left for a follow-up.
+
 - **`radar_palette.gateid`: per-gate classification of the dominant scatterer.**
   Two subpackages over one physics core. `gateid.single` classifies a volume from
   uncorrected polarimetric moments with no reference to any other volume;
