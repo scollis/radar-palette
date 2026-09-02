@@ -230,9 +230,10 @@ def test_a_noiseless_gaussian_is_recovered_at_the_expected_broadening():
 
     An 11-gate derivative filter broadens a Gaussian by the variance of its own
     window: the recovered sigma should be about
-    ``sqrt(sigma^2 + (L*dr)^2 / 12)`` = 1.041 km for sigma = 1 km and an 1.1 km
-    filter, and the peak should fall by the same ratio since the integral is
-    conserved.
+    ``sqrt(sigma^2 + (L*dr)^2 / 12)``, which for sigma = 1 km and the realised
+    1.1 km filter is 1.049 km, and the peak should fall by the same ratio since
+    the integral is conserved. The assertion below recomputes this from the
+    realised smoothing length rather than using the number quoted here.
     """
     range_km, kdp_true, phidp = _gaussian_ray(amplitude=3.0, sigma_km=1.0)
     low, high = _wide_box(phidp.size)

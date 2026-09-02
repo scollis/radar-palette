@@ -8,8 +8,8 @@ be read as a propagation phase, and before any fold branch can be decided.
 Relationship to wradlib
 -----------------------
 The three estimators here follow the algorithms in :mod:`wradlib.dp`
-(``system_phidp_block`` / ``_first`` / ``_hist``, as presented in the ERAD 2026
-openradar system-PhiDP workflow), and reproduce their two-level output: a
+(``system_phidp_block`` / ``_first`` / ``_hist``), read from the wradlib 2.9.5
+source, and reproduce their two-level output: a
 **ray-wise** estimate ``sysphi_ray`` and a **sweep-level** estimate ``sysphi``
 formed as the median of the ``n_lowest_rays`` smallest ray-wise values.
 
@@ -122,7 +122,8 @@ __all__ = [
 ]
 
 #: Copolar correlation floor for gates admitted to a system-phase estimate.
-#: 0.9 is the value used in the ERAD 2026 system-PhiDP workflow. It is a
+#: 0.9 is the value specified for this implementation; it is not a wradlib
+#: default (wradlib's estimators take an already-masked field). It is a
 #: quality floor, not a hydrometeor threshold: the estimate needs gates whose
 #: phase is meaningful at all, and below rho_hv ~ 0.9 the per-gate phase
 #: variance is large enough to bias a short-window median.
