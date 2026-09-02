@@ -23,8 +23,11 @@ because it is a reflectivity product, and the acceptance suite it passes is the 
 a reflectivity product passes trivially. Section 7 documents this in full; Section 8
 explains why the tests did not catch it.
 
-The architecture below is, I think, sound. The bounds as currently parameterised are
-not.
+The architecture below is, I think, sound, and it is Huang et al.'s. The bounds as
+currently parameterised are not — though Section 7 shows the fault is more likely in
+absolute $Z$ calibration and in the hard-box formulation than in the tolerance factors,
+and the self-consistency relation itself agrees with Huang's own to within a few
+per cent in the regime that matters.
 
 ---
 
@@ -295,8 +298,9 @@ Section 3.6 in plain view — and the fact that no KDP is reported there is the
 |---|---|---|---|
 | objective | $\|x-b\|_1$ | $\|x-b\|_1$ | $\|x-b\|_1$ |
 | constraint | one-sided $Mx \geq 0$ | two-sided box | two-sided box |
-| self-consistency | lower bound, $aZ^b$ | Eq. 14 both sides | T-matrix cubic, computed here |
-| coefficient source | fitted | Gourley-lineage | rustmatrix forward model |
+| self-consistency | lower bound, $aZ^b$ | Eq. 14 both sides | Eq. 14 both sides |
+| relation form | $aZ^b$ | power law $z_h^{1.04} Z_{dr}^{-1.91}$, $Z_{dr}$ linear | cubic in $Z_{DR}$ (dB) |
+| coefficient source | fitted to data | 2-year 2DVD climatology | rustmatrix T-matrix, computed here |
 | out-of-rain behaviour | same constraint | rain-only scope | box released |
 | sign policy | global $\geq 0$ | global $\geq 0$ | altitude-conditioned |
 | smoothing | coupled $s_L$ post-filter | 2 km derivative filter | 1.0 km, from measured DSD scale |
@@ -368,20 +372,56 @@ The constraint itself is satisfied exactly — zero violations in 250,638 gates 
 this is not a solver bug. It is a parameterisation failure: the box is far too tight
 relative to the phase information, so the phase term never gets to act.
 
-**Proximate cause.** The ceiling is $z_H \times P(Z_{DR})$, and $Z_{DR}$ is low on
-every platform: median in rain gates 0.59 dB at BNF (with the +0.84 dB vertical-pointing
-offset already applied), 0.62 dB at SGP C-SAPR, 0.17 dB at CACTI, **0.00 dB** at SGP
-X-SAPR. Real rain at these reflectivities should give appreciably more. Since $P$ is a
-cubic in $Z_{DR}$, an under-calibrated $Z_{DR}$ collapses the ceiling non-linearly.
-Only BNF has a measured offset at all; the other three inherit whatever calibration
-error their $Z_{DR}$ carries. Note this is *not* a clean monotonic story — SGP C-SAPR
-has the highest median $Z_{DR}$ and the *lowest* ceiling-pinning rate, because it is
-pinned at the floor instead. What is universal is that ~92–97% of gates sit on *a*
-bound.
+**Cause — three hypotheses tested, two eliminated.**
 
-**Contributing cause.** `upper_factor = 2.0` was chosen against a known 1.34× spread
-between two credible forward models. Given a $Z_{DR}$ bias on top of that, it is not
-wide enough to keep the box from binding.
+*Not a $Z_{DR}$ calibration bias.* This was my first diagnosis and it is wrong in sign.
+$K_{DP}/z_H$ *decreases* with $Z_{DR}$, so an under-calibrated (low) $Z_{DR}$ **raises**
+the ceiling rather than collapsing it. At 40 dBZ, moving $Z_{DR}$ from 1.5 to 0.0 dB
+takes the predicted $K_{DP}$ from 0.408 to 0.695 deg/km. A low $Z_{DR}$ cannot be the
+mechanism.
+
+*Not attenuation.* Rebuilding the bounds at BNF from
+`attenuation_corrected_reflectivity_h` and the corrected $Z_{DR}$ changes the ceiling
+median from 0.09 to 0.09 deg/km (1.05× on the median, unchanged at p90 and p99). The
+mean correction over rain gates is 0.12 dB.
+
+*Not the functional form.* Huang et al. use a power law,
+$K_{DP} = 4.7041\times10^{-5} z_h^{1.0411} Z_{dr}^{-1.9097}$ with $Z_{dr}$ a linear
+ratio, fitted to a 2-year 2DVD climatology. The cubic-in-dB used here agrees with it to
+1–4% over $Z_{DR} = 0$–1 dB and to 25% at 2 dB. The two relations do not meaningfully
+disagree in the regime that matters.
+
+*What is actually happening: the measured phase implies far more $K_{DP}$ than the
+reflectivity permits, and the discrepancy grows with range.* On ray 353, in 15 km bins:
+
+| range (km) | mean alt (km) | measured $K_{DP}$ | self-consistency centre | ratio | median $Z$ |
+|---|---|---|---|---|---|
+| 0–15 | 0.38 | 1.126 | 0.355 | 3.2 | 36.0 |
+| 15–30 | 0.79 | 0.933 | 0.378 | 2.5 | 38.1 |
+| 30–45 | 1.23 | 1.507 | 0.322 | 4.7 | 37.1 |
+| 45–60 | 1.70 | 2.742 | 0.223 | 12.3 | 34.8 |
+| 60–75 | 2.20 | 1.548 | 0.063 | 24.7 | 25.7 |
+| 75–90 | 2.63 | 0.814 | 0.017 | 48.3 | 17.6 |
+
+No gate on this ray is classified `melting_wet`, so this is not a melting-layer
+artifact, and no fold was inserted on this ray (0 shifted gates), so it is not an
+unfolding artifact — the raw $\Psi_{DP}$ genuinely runs from −158.8° to +119.7° over
+107 km.
+
+Two things are therefore true at once. There is a **baseline factor of ~2.5–3** even in
+the cleanest close-range gates at 36–38 dBZ, which points at either an absolute $Z$
+calibration error or a self-consistency relation that is too low for these DSDs. And
+there is a **strong range dependence** on top of it, reaching 48× where $Z$ has fallen
+to 17.6 dBZ — the signature of non-uniform beam filling and of phase drifting on in
+gates with little signal.
+
+The uncomfortable implication is that the bound may be partly *right*: rejecting phase
+accumulation that $Z$ cannot support is exactly what a self-consistency constraint is
+for, and the far-range excess looks like the NUBF contamination the architecture was
+chosen to defend against. What is not defensible is that the constraint is binding on
+97% of gates *silently*, with no diagnostic saying so and no residual left to inspect.
+That is an argument for a soft penalty over a hard box (Section 10, item 4), and for
+settling absolute $Z$ calibration before touching the tolerance factors.
 
 ---
 
@@ -441,12 +481,16 @@ In order:
 
 1. Add the bound-activity and phase-recovery diagnostics to the acceptance suite. No
    further tuning should happen before the suite can see this failure.
-2. Settle $Z_{DR}$ calibration per platform. Goddard et al. (1994) and Gourley et al.
-   (2009) give the machinery; the vertical-pointing method of Ryzhkov et al. (2005)
-   worked at BNF and the curated scans elsewhere may support it.
-3. Re-derive the tolerance factors from the *measured* forward-model spread rather
-   than from a round number, and make them $Z_{DR}$-dependent — the two models agree
-   at low $Z_{DR}$ and diverge above 1 dB, so a constant factor is the wrong shape.
+2. Settle **absolute $Z$** calibration, not just $Z_{DR}$. The ceiling is linear in
+   $z_H$, so a 3 dB reflectivity error is a 2× error in the bound, and the close-range
+   factor of ~2.5–3 in Section 7 is consistent with roughly 5 dB. Gourley et al. (2009)
+   is precisely the machinery for this — it uses polarization redundancy to pin
+   absolute calibration — and Goddard et al. (1994) is its antecedent. $Z_{DR}$
+   calibration still matters (Ryzhkov et al. 2005 worked at BNF) but it is second
+   order here and acts in the opposite direction to what I first assumed.
+3. Quantify the NUBF contribution to the range-dependent excess before adjusting any
+   tolerance factor. If the far-range excess is NUBF, widening the box would admit
+   contamination rather than fix a bias.
 4. Consider whether the ceiling should be a soft penalty rather than a hard
    constraint. A hard box guarantees the failure in Section 7 is silent; a penalty
    would let the phase overrule a wrong bound and leave a residual to inspect.
