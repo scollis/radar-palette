@@ -460,3 +460,35 @@ invariance structural, and gap-filling by linear interpolation upstream recovers
 some but not all of it. Two of six volumes solved under half their rays.
 
 Reproduce with `docs/acceptance_campaign.py`.
+
+## 7. Bound saturation — blocking defect found 2026-09-02
+
+Measured on four research radars at lowest tilt, counting rain gates with a reported
+KDP that sit within 1e-6 deg/km of either bound:
+
+| platform | band | rain gates | at ceiling | at floor | strictly interior |
+|---|---|---|---|---|---|
+| SGP C-SAPR | C | 21,383 | 16.2% | 79.2% | **4.6%** |
+| SGP X-SAPR | X | 104,535 | 59.0% | 38.2% | **2.8%** |
+| CACTI C-SAPR2 | C | 90,955 | 60.9% | 31.4% | **7.7%** |
+| BNF C-SAPR2 | C | 245,085 | 82.3% | 15.0% | **2.7%** |
+
+Only 2.7-7.7% of the output is determined by the phase measurement. At BNF the
+retrieved percentiles are indistinguishable from the ceiling's (p50 0.07 vs 0.09,
+p90 0.62 vs 0.63, p99 1.69 vs 1.70). On ray 353 every reported gate is on the ceiling
+and the fit recovers 30.5% of the measured phase accumulation.
+
+Not a solver bug: zero constraint violations in 250,638 gates. The box is simply far
+too tight, so the phase term never acts. The ceiling is `z_H * P(ZDR)` and ZDR medians
+in rain are 0.59 (BNF, offset applied), 0.62, 0.17 and 0.00 dB; P is cubic, so a low
+ZDR collapses the ceiling non-linearly. `upper_factor = 2.0` is too narrow against the
+known 1.34x spread between two credible forward models.
+
+**The acceptance suite cannot see this**, and that is a defect in the tests. Every
+test in it is passed trivially by a smooth function of Z and ZDR. Two cheap additions
+fix that and must land before any validation campaign:
+
+1. the fraction of gates strictly interior to the feasible box;
+2. fitted vs measured phase accumulation over the weighted span.
+
+See `docs/algorithm-description.md` for the full write-up.
