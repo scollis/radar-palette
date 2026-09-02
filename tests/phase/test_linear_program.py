@@ -1,10 +1,10 @@
 """Tests for the bounded-KDP linear program.
 
-Three of these are here because of a specific past failure rather than for
-coverage: offset invariance (a zero-fill once moved the negative-KDP fraction
-from 39% to 76% under a constant shift), the box guarantee on the *reported*
-field, and recovery of a synthetic Gaussian of known width and amplitude --- "it
-ran" is not a result.
+Three of these are here because of a specific failure mode rather than for
+coverage: offset invariance, which a zero-fill of invalid gates is known to
+break and which is measured here at 2.9e-13 with full window support and
+20 deg/km without it; the box guarantee on the *reported* field; and recovery of
+a synthetic Gaussian of known width and amplitude --- "it ran" is not a result.
 """
 
 from __future__ import annotations

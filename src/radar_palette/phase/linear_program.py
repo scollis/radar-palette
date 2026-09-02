@@ -54,12 +54,13 @@ Savitzky--Golay derivative weights sum to zero), the phase variables are
 unbounded, nothing anchors ``x`` at an absolute value, and gates with zero weight
 contribute *no rows at all* rather than being zero-filled --- a zero fill puts a
 value inside the data range which then carries no cost but still enters the
-constraint. That failure mode is not hypothetical: an earlier KDP retrieval in
-this project recorded a constant phase shift moving its negative-KDP fraction
-from 39% to 76% through exactly that mechanism. (That figure is inherited from
-the earlier work, not measured here; what *is* measured here is this module's
-invariance, in ``tests/phase/test_linear_program.py``, which verifies it rather
-than assuming it.)
+constraint. Zero-filling invalid gates is a known way to break invariance in a
+phase retrieval, and it is the reason the fill was avoided here; no figure from
+that earlier experience is quoted, because none could be re-verified while this
+module was written. What *is* measured here is this module's own behaviour:
+invariance to 2.9e-13 with full window support, and a 20 deg/km failure without
+it (see :data:`DEFAULT_MIN_WINDOW_WEIGHT_FRACTION`). Both are asserted in
+``tests/phase/test_linear_program.py`` rather than assumed.
 
 Smoothing length
 ----------------
