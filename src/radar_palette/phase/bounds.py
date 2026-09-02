@@ -159,11 +159,12 @@ DEFAULT_UPPER_FACTOR = 2.0
 #: Reflectivity ceiling on KDP as ``((z_dbz_below, cap_deg_per_km), ...)``,
 #: ascending in Z. The two rungs are Huang et al. (2016) Eq. (16) as reported
 #: for their C-band configuration: 8 deg/km below 35 dBZ, 10 deg/km below
-#: 45 dBZ. **The behaviour above 45 dBZ is not set here**: the paper's own value
-#: for that regime was not available when this was written, so
-#: :func:`reflectivity_cap` takes ``cap_above`` explicitly and defaults to no
-#: reflectivity cap there, leaving the self-consistency upper bound to act
-#: alone. That is a documented gap, not a reproduction of Eq. (16).
+#: 45 dBZ. **Eq. (16) has exactly these two rungs**: verified against the
+#: accepted manuscript (p. 27), the paper specifies no cap above 45 dBZ
+#: anywhere. :func:`reflectivity_cap` therefore takes ``cap_above`` explicitly
+#: and defaults to no reflectivity cap there, leaving the self-consistency upper
+#: bound to act alone — which reproduces Eq. (16) rather than working around a
+#: gap in it.
 DEFAULT_REFLECTIVITY_CAP_LADDER = ((35.0, 8.0), (45.0, 10.0))
 
 #: Accepted sign policies. See the module docstring for why

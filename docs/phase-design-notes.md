@@ -157,14 +157,20 @@ in the relation that produced it is a bias, not a constraint. The X-band fit is
 the poorest and its cubic has no positive root; treat it as the least
 trustworthy of the three.
 
-**The reflectivity cap ladder is incomplete and says so.** `((35.0, 8.0),
-(45.0, 10.0))` is Eq. (16) as reported for the paper's C-band configuration: 8
-deg/km below 35 dBZ, 10 below 45. The paper's value **above 45 dBZ was not
-available in-session** — the full text is not retrievable through any automated
-route (Unpaywall, Semantic Scholar, PMC and CrossRef TDM all returned nothing
-for `10.1109/tgrs.2016.2596295`). `cap_above` is therefore an explicit parameter
-defaulting to *no* reflectivity cap there, leaving the self-consistency upper
-bound to act alone. This is a documented gap, not a reproduction of Eq. (16).
+**The reflectivity cap ladder is complete, verified against the source.**
+`((35.0, 8.0), (45.0, 10.0))` is Eq. (16) in full: 8 deg/km where the
+self-consistency cap exceeds 8 and ZH < 35 dBZ, 10 where it exceeds 10 and
+ZH < 45 dBZ. Eq. (16) has **exactly those two rungs and specifies no cap above
+45 dBZ anywhere in the paper**, so `cap_above` defaulting to no reflectivity cap
+there — leaving the self-consistency upper bound to act alone — *is* the
+published behaviour rather than a gap.
+
+This was checked directly against the accepted manuscript, which **is**
+retrievable although `fetch_article_fulltext` does not find it: the OSTI record
+redirects to the author-institution copy at
+`https://www.bnl.gov/isd/documents/93430.pdf`, reachable via
+`https://www.osti.gov/servlets/purl/1336090` once `www.bnl.gov` is allowlisted.
+Eq. (16) is on p. 27 of that 58-page manuscript.
 
 **The self-consistency constraint is bounded to rain**, per Huang's own
 assessment that such methods fail "in critical situations such as hail cores
@@ -341,10 +347,11 @@ which is a separate phase.
 - Huang, Zhang, Zhao & Giangrande (2016), *A Hybrid Method to Estimate Specific
   Differential Phase and Rainfall With Linear Programming and Physics
   Constraints*, [10.1109/TGRS.2016.2596295](https://doi.org/10.1109/TGRS.2016.2596295).
-  **Full text not retrievable in-session**; the architecture followed here is as
-  specified in the task brief and the project's own verified notes, and the one
-  place a paper value was needed and unavailable (the Eq. 16 cap above 45 dBZ)
-  is an explicit parameter flagged above.
+  Accepted manuscript retrieved in-session from `https://www.osti.gov/servlets/purl/1336090`
+  (redirects to `www.bnl.gov/isd/documents/93430.pdf`); the architecture followed here is as
+  specified in the task brief and the project's own verified notes. Eq. (16) is
+  on p. 27 and has exactly two rungs, so the absence of a cap above 45 dBZ in
+  this module reproduces the paper rather than working around it.
 - Giangrande, McGraw & Lei (2013), the one-sided predecessor this deliberately
   departs from.
 - Gourley, Illingworth & Tabary (2009),
