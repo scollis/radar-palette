@@ -251,3 +251,64 @@ def test_all_masked_sweep_yields_no_estimate():
     assert np.isnan(result["sysphi_ray"]).all()
     assert np.isnan(result["sysphi"])
     assert result["consistency"]["n_valid"] == 0
+
+
+# --------------------------------------------------------------------------
+# circular re-branching (survey finding: 5 of 44 BNF >=1.10 volumes returned
+# a system phase near +348 instead of ~+10 because "the N lowest" is a linear
+# ordering applied to angles)
+# --------------------------------------------------------------------------
+
+
+def test_rebranch_makes_a_cut_straddling_sample_contiguous():
+    values = np.array([358.0, 359.0, 2.0, 3.0, 1.0])
+    out, moved = system.rebranch(values)
+    assert moved == 2, "the two values past the cut are the ones shifted"
+    assert out.max() - out.min() < 10.0, "sample is contiguous after re-branching"
+    assert np.isclose(np.median(out) % 360.0, 1.0)
+
+
+def test_rebranch_leaves_a_contiguous_sample_alone():
+    values = np.array([44.0, 45.0, 46.0, 47.0])
+    out, moved = system.rebranch(values)
+    assert moved == 0
+    assert np.allclose(out, values)
+
+
+def test_aggregate_recovers_the_offset_across_a_branch_cut():
+    """The failure class the survey measured, reproduced and fixed.
+
+    A stream sitting just *below* a 0/360 cut returns a mixture: most rays near
+    358, a few noise rays wrapped to near 1. "The N lowest" is a linear ordering
+    applied to angles, so it selects the wrapped minority and reports ~1 for a
+    field whose offset is ~358 --- a whole-period discrepancy, which is the
+    shape of the error the survey found in 5 of 44 BNF >=1.10 volumes.
+
+    Circularly the two answers are close; that is precisely what makes the bug
+    survive inspection. It is harmless for KDP, which differentiates the offset
+    away, and wrong for anything using absolute PhiDP.
+    """
+    rng = np.random.default_rng(0)
+    truth = 358.0
+    rays = (truth + rng.normal(0.0, 3.0, 120)) % 360.0  # sd within the surveyed 1.3-4.2 range
+    assert (rays < 180.0).any() and (rays > 180.0).any(), (
+        "test is vacuous unless the sample straddles the cut"
+    )
+
+    got = system._aggregate_sysphi(rays, n_lowest_rays=30)
+    circular_error = abs(((got - truth + 180.0) % 360.0) - 180.0)
+    assert circular_error < 4.0, f"re-branched aggregate off by {circular_error:.2f} deg"
+    assert got > 180.0, "and it is reported on the branch the data used"
+
+    naive = float(np.median(np.partition(rays, 29)[:30]))
+    assert abs(naive - got) > 300.0, (
+        "the un-rebranched aggregate lands a whole period away --- the bug guarded here"
+    )
+
+
+def test_aggregate_is_unchanged_on_a_stream_far_from_the_cut():
+    rng = np.random.default_rng(1)
+    rays = -137.65 + rng.normal(0.0, 1.3, 120)
+    got = system._aggregate_sysphi(rays, n_lowest_rays=30)
+    naive = float(np.median(np.partition(rays, 29)[:30]))
+    assert abs(got - naive) < 1e-9, "re-branching must be a no-op away from a cut"

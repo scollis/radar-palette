@@ -174,17 +174,67 @@ def valid_phase_mask(phidp, rhohv=None, rhohv_min=DEFAULT_RHOHV_MIN):
     return mask
 
 
+def rebranch(values, period=360.0):
+    """Put circular ``values`` on one contiguous branch before averaging them.
+
+    Ray-wise system-phase estimates are angles, so a stream whose system phase
+    sits near a branch cut returns a mixture of (say) ``+8`` and ``+352`` for
+    what is physically the same offset. Any linear statistic over that mixture
+    --- mean, median, or "the N lowest" --- lands near the middle of the circle
+    instead of near the offset.
+
+    This is not hypothetical. A 360-volume survey of the case library found the
+    BNF C-SAPR2 ``>=1.10`` stream sitting at ``+9.75`` degrees on a ``0/360``
+    branch, and **5 of 44 volumes (11.4%) returned a system phase near +345 to
+    +351 instead of ~+10** for exactly this reason. The same stream's
+    ``system_phidp_first`` ray-to-ray scatter was 31.19 degrees against 2.00 for
+    ``block``, which is the same effect seen from the other side.
+
+    Values are shifted onto the branch centred on their circular mean, so the
+    result is contiguous and ordinary linear statistics apply. Returns
+    ``(rebranched, moved)``, where ``moved`` counts values shifted by a whole
+    period --- a nonzero count is the diagnostic that the input straddled a cut.
+    """
+    v = np.asarray(values, dtype=float)
+    finite = np.isfinite(v)
+    if not finite.any():
+        return v.copy(), 0
+    ang = np.deg2rad(v[finite] * (360.0 / period))
+    centre = np.rad2deg(np.arctan2(np.sin(ang).mean(), np.cos(ang).mean())) * (
+        period / 360.0
+    )
+    out = v.copy()
+    shifted = centre + (v[finite] - centre + period / 2.0) % period - period / 2.0
+    out[finite] = shifted
+    return out, int(np.count_nonzero(np.abs(shifted - v[finite]) > period / 4.0))
+
+
+def _wrap_like(value, reference, period=360.0):
+    """Wrap ``value`` back into whichever branch ``reference`` is expressed in."""
+    ref = np.asarray(reference, dtype=float)
+    ref = ref[np.isfinite(ref)]
+    if not ref.size or not np.isfinite(value):
+        return float(value)
+    lo = 0.0 if ref.min() >= -1e-9 else -period / 2.0
+    return float(lo + (value - lo) % period)
+
+
 def _aggregate_sysphi(sysphi_ray, n_lowest_rays):
     """Median of the ``n_lowest_rays`` smallest finite ray-wise estimates.
 
     Returns NaN when fewer than ``n_lowest_rays`` rays are finite, matching
     wradlib rather than silently aggregating a handful of rays.
+
+    The estimates are re-branched with :func:`rebranch` first, because "the N
+    lowest" is a linear ordering applied to angles and is meaningless across a
+    branch cut. The aggregate is wrapped back into the branch the input used.
     """
     finite = sysphi_ray[np.isfinite(sysphi_ray)]
     if finite.size < n_lowest_rays:
         return np.nan
-    lowest = np.partition(finite, n_lowest_rays - 1)[:n_lowest_rays]
-    return float(np.median(lowest))
+    contiguous, _moved = rebranch(finite)
+    lowest = np.partition(contiguous, n_lowest_rays - 1)[:n_lowest_rays]
+    return _wrap_like(float(np.median(lowest)), finite)
 
 
 def _masked(phidp, mask):

@@ -360,3 +360,53 @@ which is a separate phase.
 - Brandes, Zhang & Vivekanandan (2002), drop-shape relation Eq. (2).
 - wradlib `dp.system_phidp_block` / `_first` / `_hist`, the system-phase
   algorithms reimplemented here.
+
+## 5. Defaults wired from the case-library survey
+
+A 360-volume survey of `~/data/radar_cases` (25.5% of 1,412 volumes, lowest
+sweep only) changed three things here. Each is a measurement, not a preference.
+
+**Measured stream reference.** System phase and ray-to-ray scatter by stream,
+`system_phidp_block`, robust MAD of `sysphi_ray` about its own median:
+
+| stream | branch | sysphi (deg) | ray-to-ray MAD (deg) |
+|---|---|---|---|
+| BNF C-SAPR2 1.7/1.8 | ±180 | −137.65 | 1.29 |
+| BNF C-SAPR2 ≥1.10 | 0/360 | +9.75 | 2.00 |
+| SGP C-SAPR | ±180 | −132.67 | 2.34 |
+| KVNX WSR-88D | 0/360 | +26.97 | 2.88 |
+| KHTX WSR-88D | 0/360 | +50.82 | 3.14 |
+| KGWX WSR-88D | 0/360 | +44.52 | 3.40 |
+| KLOT WSR-88D | 0/360 | +47.69 | 4.18 |
+
+These are a QC reference, **not** defaults to apply: system phase is a property
+of a deployment and must be estimated per volume. Measured wrap is 360 deg on
+every stream carrying a phase field; **0 of 359 fields were pre-unfolded**, so
+always unfold and never infer otherwise from an absence of wraps.
+
+**`rebranch` before aggregating (new).** `_aggregate_sysphi` takes "the N
+lowest" ray-wise estimates, which is a linear ordering applied to angles and is
+meaningless across a branch cut. The survey found 5 of 44 BNF ≥1.10 volumes
+returning a system phase a whole period away from the stream value. Estimates
+are now put on one contiguous branch first and the aggregate wrapped back into
+the branch the input used; re-branching is a no-op away from a cut, asserted.
+Harmless for KDP, which differentiates any offset away — wrong for anything
+using absolute PhiDP, which is why it survived inspection.
+
+**`DEFAULT_CONFIRM_GATES` 3 → 8, and a two-sided shift band.** The persistence
+test previously required the sustained change to exceed a threshold. It now
+requires it to land within `DEFAULT_SHIFT_TOLERANCE = 0.25` of a *whole wrap*,
+because a fold moves the level by exactly one period and a `delta` excursion or
+steep gradient does not. Validated over 1,099,263 candidate steps: accepted
+median |shift| 344.6 deg against 23.1 deg rejected, and **96.4% of steps
+exceeding 180 deg were noise**, so the one-sided form overcounted folds by
+roughly 28x. Tolerance is not delicate — 0.10 to 0.35 moves sign-rejected
+contamination from 0.6% to 1.9%.
+
+**Not wired, deliberately.** The survey found a coherent azimuthal phase
+signature at BNF fixed to the radar (48.1% of residual variance in harmonics
+1–3, 5.16 deg peak-to-peak, persisting across days at r = 0.42 where a KHTX
+weather control gives r = −0.006). That establishes existence, not a correction
+table: r = 0.42 means roughly half the residual is not reproducible, and the
+test covers the lowest sweep only. Applying half-reproducible azimuthal
+corrections would make the field less consistent, not more.

@@ -134,12 +134,38 @@ def test_a_short_run_of_excursion_gates_is_still_rejected():
 
 
 def test_confirm_gates_of_one_reintroduces_the_unwrap_failure():
-    """The persistence window is load-bearing, not decoration."""
+    """The persistence window is load-bearing, not decoration.
+
+    The spike is a *whole wrap* so that the shift-tolerance band accepts it and
+    only persistence can reject it --- otherwise this would pass for the wrong
+    reason, with the band doing the work the window is supposed to demonstrate.
+    """
     truth, _ = _ramp(kdp=1.0, n_gates=200)
     spiked = truth.copy()
-    spiked[100] += 200.0
-    _, meta = unfold.unfold_phidp(spiked[None, :], confirm_gates=1)
-    assert meta["n_confirmed"] > 0
+    spiked[100] += unfold.DEFAULT_WRAP_DEG
+    _, meta_one = unfold.unfold_phidp(spiked[None, :], confirm_gates=1)
+    assert meta_one["n_confirmed"] > 0, "a one-gate window confirms a reverting spike"
+    _, meta_default = unfold.unfold_phidp(spiked[None, :])
+    assert meta_default["n_confirmed"] == 0, "the default window rejects it"
+
+
+def test_the_shift_band_rejects_a_large_step_that_is_not_a_whole_wrap():
+    """96.4% of >180 deg steps in the case library were noise, not folds.
+
+    A sustained 200 deg level change is not a fold: a fold moves the level by
+    exactly one period. The band criterion is what separates the two, and it is
+    independent of the persistence window --- here the shift *is* sustained.
+    """
+    truth, _ = _ramp(kdp=1.0, n_gates=200)
+    stepped = truth.copy()
+    stepped[100:] += 200.0
+    _, meta = unfold.unfold_phidp(stepped[None, :])
+    assert meta["n_confirmed"] == 0, "a sustained non-wrap step is not a fold"
+
+    wrapped = truth.copy()
+    wrapped[100:] -= unfold.DEFAULT_WRAP_DEG
+    _, meta_fold = unfold.unfold_phidp(wrapped[None, :])
+    assert meta_fold["n_confirmed"] == 1, "a sustained whole-wrap step is a fold"
 
 
 # --------------------------------------------------------------------------
