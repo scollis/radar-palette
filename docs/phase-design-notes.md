@@ -283,8 +283,10 @@ by more than 1.3x from the first to the last.
 
 Not "it ran". For a true KDP Gaussian of amplitude 3.0 deg/km and sigma 1.0 km
 with an 11-gate (1.10 km) filter, the recovered width should be
-`sqrt(sigma^2 + (L*dr)^2/12) = 1.041 km` and the peak should fall by the same
-ratio because a derivative filter conserves the integral. Both are asserted to
+`sqrt(sigma^2 + (L*dr)^2/12)`, which for the realised 1.10 km filter is
+**1.049 km**, and the peak should fall by the same ratio because a derivative
+filter conserves the integral. The test recomputes this from
+`realised_smoothing_km` at runtime rather than using the quoted number. Both are asserted to
 5–6%, together with the integral itself to 2%. Under 1.8 deg per-gate phase
 noise the amplitude holds to 25% and the width to 35%.
 
