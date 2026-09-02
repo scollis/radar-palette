@@ -8,6 +8,7 @@
    radar_palette.advection
    radar_palette.gateid
    radar_palette.gridding
+   radar_palette.phase
    radar_palette.util
    radar_palette.testing
 ```

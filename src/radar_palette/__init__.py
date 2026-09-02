@@ -21,6 +21,12 @@ common geometry and decibel-handling layer:
     and melting-layer constraints, plus tooling for measuring and exploiting
     temporal persistence between volumes.
 
+``radar_palette.phase``
+    Differential-phase processing. System-offset estimation with a ray-to-ray
+    consistency diagnostic, fold repair that distinguishes a fold from a
+    backscatter-phase excursion, and a bounded KDP retrieval whose two-sided
+    box is built from Z and ZDR rather than from the phase it is fitting.
+
 ``radar_palette.io``
     Object-flavour interoperability. Both capabilities accept Py-ART
     (``Radar``/``Grid``) and xradar (``DataTree``/xarray ``Dataset``) objects, and
@@ -36,7 +42,7 @@ public API here is not yet stable.
 
 from __future__ import annotations
 
-from radar_palette import advection, gateid, gridding, io, testing, util
+from radar_palette import advection, gateid, gridding, io, phase, testing, util
 
 try:  # pragma: no cover - generated at build time by setuptools-scm
     from radar_palette._version import version as __version__
@@ -55,6 +61,7 @@ __all__ = [
     "gateid",
     "gridding",
     "io",
+    "phase",
     "testing",
     "util",
 ]
