@@ -11,6 +11,8 @@ filtered gate in a volume.
 
 from __future__ import annotations
 
+from dataclasses import replace
+
 import numpy as np
 import pytest
 
@@ -290,3 +292,93 @@ def test_repr_and_to_dict_carry_the_numbers_a_log_line_needs():
     assert set(summary) >= {"intercept_dbz", "residual_rms_db", "model", "meta"}
     # No arrays: this has to survive being written into a field comment.
     assert all(not hasattr(v, "shape") for v in summary["meta"].values())
+
+
+# --------------------------------------------------------------------------
+# the SNR route
+# --------------------------------------------------------------------------
+
+
+def test_snr_route_recovers_the_floor_through_heavy_weather():
+    """The exact route does not care what fraction of the volume is weather."""
+    values, ranges = _noise_volume()
+    trend = 20.0 * np.log10(ranges / mds.REFERENCE_RANGE_M)
+    # SNR is signal over noise; the noise-equivalent Z is the floor itself.
+    snr = values - (FLOOR_AT_1KM + trend[None, :])
+    values[: values.shape[0] * 3 // 4, 20:150] = 45.0
+    snr[: snr.shape[0] * 3 // 4, 20:150] = 45.0 - (FLOOR_AT_1KM + trend[None, 20:150])
+    estimate = mds.estimate_profile(values, ranges, snr=snr, min_range_m=0.0)
+    assert estimate.method == "snr"
+    assert estimate.intercept_dbz == pytest.approx(FLOOR_AT_1KM, abs=0.01)
+    assert estimate.residual_rms_db < 0.01
+
+
+def test_auto_prefers_the_snr_route_when_an_snr_array_is_given():
+    values, ranges = _noise_volume()
+    snr = values - (FLOOR_AT_1KM + 20.0 * np.log10(ranges / mds.REFERENCE_RANGE_M))
+    assert (
+        mds.estimate_profile(values, ranges, snr=snr, min_range_m=0.0).method == "snr"
+    )
+    assert mds.estimate_profile(values, ranges, min_range_m=0.0).method == "noise"
+
+
+def test_snr_route_needs_an_snr_array():
+    values, ranges = _noise_volume()
+    with pytest.raises(ValueError, match="needs an snr array"):
+        mds.estimate_profile(values, ranges, method="snr")
+
+
+def test_a_deterministic_difference_is_reported_as_a_derived_snr_field():
+    """Zero scatter means SNR came from Z, which changes what the floor means."""
+    values, ranges = _noise_volume()
+    snr = values - (FLOOR_AT_1KM + 20.0 * np.log10(ranges / mds.REFERENCE_RANGE_M))
+    estimate = mds.estimate_profile(values, ranges, snr=snr, min_range_m=0.0)
+    assert any("appears derived" in w for w in estimate.meta["warnings"])
+
+
+def test_a_gross_disagreement_with_the_mode_is_reported():
+    """An SNR field offset from the reflectivity it is paired with."""
+    values, ranges = _noise_volume()
+    snr = values - (FLOOR_AT_1KM + 20.0 * np.log10(ranges / mds.REFERENCE_RANGE_M))
+    estimate = mds.estimate_profile(values, ranges, snr=snr + 8.0, min_range_m=0.0)
+    assert estimate.meta["cross_check_delta_db"] == pytest.approx(8.0, abs=1.5)
+    assert any("from the SNR route" in w for w in estimate.meta["warnings"])
+
+
+def test_the_cross_check_can_be_switched_off():
+    values, ranges = _noise_volume()
+    snr = values - (FLOOR_AT_1KM + 20.0 * np.log10(ranges / mds.REFERENCE_RANGE_M))
+    estimate = mds.estimate_profile(
+        values, ranges, snr=snr, min_range_m=0.0, cross_check=False
+    )
+    assert "cross_check_noise_mode_dbz" not in estimate.meta
+
+
+# --------------------------------------------------------------------------
+# evaluation inside the innermost gate
+# --------------------------------------------------------------------------
+
+
+def test_a_zero_range_first_gate_does_not_take_a_divergent_fill():
+    values, ranges = _noise_volume()
+    ranges = np.concatenate([[0.0], ranges[:-1]])
+    estimate = mds.estimate_profile(values, ranges, min_range_m=0.0)
+    at_zero = float(estimate.evaluate([0.0])[0])
+    assert np.isfinite(at_zero)
+    # One gate spacing in, not r -> 0.
+    assert at_zero == pytest.approx(float(estimate.evaluate([ranges[1]])[0]))
+    assert estimate.floor_range_m == pytest.approx(float(ranges[1]))
+
+
+def test_the_inner_limit_can_be_moved_out_to_where_the_fit_was_valid():
+    values, ranges = _noise_volume()
+    values[:, :20] += 15.0
+    estimate = mds.estimate_profile(values, ranges, min_range_m=0.0)
+    conservative = replace(
+        estimate, floor_range_m=estimate.meta["fit_min_valid_range_m"]
+    )
+    near = float(ranges[2])
+    assert float(conservative.evaluate([near])[0]) > float(estimate.evaluate([near])[0])
+    assert float(conservative.evaluate([near])[0]) == pytest.approx(
+        float(conservative.evaluate([estimate.meta["fit_min_valid_range_m"]])[0])
+    )

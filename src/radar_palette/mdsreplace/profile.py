@@ -111,6 +111,17 @@ REFERENCE_RANGE_M = 1000.0
 THEORETICAL_SLOPE_DB_PER_DECADE = 20.0
 
 
+def _smallest_positive(range_m):
+    """Smallest positive range on a grid, or None if there is none.
+
+    Used as the default inner limit for evaluation: a CfRadial volume may
+    report its first gate at exactly 0 m, where the power law is -inf.
+    """
+    values = np.asarray(range_m, dtype="f8")
+    positive = values[np.isfinite(values) & (values > 0)]
+    return float(positive.min()) if positive.size else None
+
+
 @contextlib.contextmanager
 def _quiet_nan_warnings():
     """Silence "all-NaN slice" warnings from range gates with no samples.
@@ -679,6 +690,12 @@ class MdsProfile:
         RMS of the per-range estimates about the fitted power law. The single
         most useful number here: a few tenths of a dB means the volume really
         does obey one power law, several dB means it does not.
+    floor_range_m : float or None
+        Innermost range the curve is extrapolated to; queries inside it are
+        evaluated here instead. Defaults to one gate spacing, which removes
+        the divergence at a range-0 first gate without altering the law
+        anywhere a gate is really measured. ``None`` extrapolates all the way
+        in, which at a range-0 gate means -97 dBZ.
     meta : dict
         Provenance: field used, mask source, sentinels dropped, mode fraction,
         and any warnings.
@@ -695,10 +712,11 @@ class MdsProfile:
     sample_dbz: np.ndarray | None = None
     n_samples: np.ndarray | None = None
     residual_rms_db: float = float("nan")
+    floor_range_m: float | None = None
     meta: dict = field(default_factory=dict)
 
     def evaluate(self, range_m):
-        """MDS in dBZ at arbitrary ranges.
+        r"""MDS in dBZ at arbitrary ranges.
 
         Parameters
         ----------
@@ -710,6 +728,24 @@ class MdsProfile:
         ndarray
             MDS in dBZ, including ``margin_db`` and any ``cap_dbz``.
 
+        Notes
+        -----
+        Ranges inside ``floor_range_m`` are evaluated *at* ``floor_range_m``
+        rather than extrapolated, because the power law diverges as
+        :math:`r \to 0`: a C-SAPR2 volume whose first gate is reported at 0 m
+        otherwise takes a fill of -97 dBZ there. The default is one gate
+        spacing, which removes the divergence and leaves the law untouched
+        everywhere else.
+
+        A caller who wants the innermost gates treated more conservatively can
+        set ``floor_range_m = profile.meta["fit_min_valid_range_m"]``, the
+        range from which the floor was actually measurable (3-6 km on C-SAPR2,
+        inside which ground echo contaminated the estimate). That holds the
+        fill flat across the near field instead of following the law down --
+        about 10 dB higher at 1 km on a C-SAPR2 volume. Which is right depends
+        on what the fill feeds: the law is the better physical estimate, the
+        flat hold is the safer one if near-range fill will be integrated.
+
         Examples
         --------
         ::
@@ -717,6 +753,9 @@ class MdsProfile:
             profile.evaluate([1e3, 1e4, 1e5])
         """
         query = np.asarray(range_m, dtype="f8")
+        inner = self.floor_range_m
+        if inner is not None and np.isfinite(inner):
+            query = np.maximum(query, float(inner))
         law = self.intercept_dbz + self.slope_db_per_decade * np.log10(
             np.maximum(query, 1.0) / self.reference_range_m
         )
@@ -886,6 +925,20 @@ def estimate_profile(
             float(np.median(finite_spread)) if finite_spread.size else float("nan")
         )
         meta["snr_spread_db_median"] = median_spread
+        if np.isfinite(median_spread) and median_spread < 0.01:
+            # Z - SNR with no gate-to-gate scatter at all means SNR was
+            # *derived* from Z by subtracting a modelled noise power, not
+            # measured alongside it. Measured on 2025-era BNF C-SAPR2 volumes:
+            # a spread of 4e-4 dB, and the same intercept to 0.001 dB on files
+            # months apart. The number returned is then the noise power that
+            # processing assumed -- still the right value to fill with, since
+            # it is the floor the moments were computed against, but not an
+            # independent measurement of the receiver, and not a check on it.
+            warnings_out.append(
+                f"reflectivity minus SNR is deterministic to {median_spread:.1e} dB: "
+                "SNR appears derived from reflectivity, so this floor is the "
+                "processing's assumed noise power, not an independent measurement"
+            )
         if np.isfinite(median_spread) and median_spread > 3.0:
             warnings_out.append(
                 f"reflectivity minus SNR varies by {median_spread:.1f} dB "
@@ -919,6 +972,9 @@ def estimate_profile(
                 other = None
             if other is not None:
                 meta["cross_check_noise_mode_dbz"] = other["intercept_dbz"]
+                meta["cross_check_mode_fraction"] = float(
+                    np.nanmedian(comparison["mode_fraction"])
+                )
     elif method == "noise":
         estimate = noise_floor_by_range(
             dbz,
@@ -964,6 +1020,28 @@ def estimate_profile(
         trim_sigma=trim_sigma,
     )
     meta.update({f"fit_{k}": v for k, v in fit.items() if k != "intercept_dbz"})
+
+    other_intercept = meta.get("cross_check_noise_mode_dbz")
+    if other_intercept is not None:
+        gap = float(other_intercept - fit["intercept_dbz"])
+        meta["cross_check_delta_db"] = gap
+        # The mode is expected 1-2.5 dB above the 0 dB SNR floor (a noise
+        # distribution peaks above its own zero-SNR point; 1.0-1.3 dB measured
+        # on 2026 BNF volumes, 2.3 dB on another). A gap far outside that says
+        # one of the two is not measuring the receiver -- on 2025 BNF volumes
+        # the mode ran 5-10 dB low against an SNR route whose within-range
+        # spread was 0.0004 dB. Which one is wrong is not decidable here, so
+        # both numbers are reported rather than one being silently preferred.
+        if abs(gap) > 4.0:
+            fraction = meta.get("cross_check_mode_fraction")
+            note = (
+                f"the noise mode puts the floor {gap:+.1f} dB from the SNR "
+                f"route (expect about +1 to +2.5 dB)"
+            )
+            if fraction is not None and np.isfinite(fraction):
+                note += f"; that mode held {fraction:.0%} of samples"
+            warnings_out.append(note)
+
     if fit["n_trimmed"]:
         warnings_out.append(
             f"{fit['n_trimmed']} range gates rejected as inconsistent with a "
@@ -995,6 +1073,7 @@ def estimate_profile(
         sample_dbz=estimate["sample_dbz"],
         n_samples=estimate["n_samples"],
         residual_rms_db=fit["residual_rms_db"],
+        floor_range_m=_smallest_positive(range_m),
         meta=meta,
     )
 
