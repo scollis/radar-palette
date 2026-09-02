@@ -410,3 +410,53 @@ weather control gives r = −0.006). That establishes existence, not a correctio
 table: r = 0.42 means roughly half the residual is not reproducible, and the
 test covers the lowest sweep only. Applying half-reproducible azimuthal
 corrections would make the field less consistent, not more.
+
+## 6. Acceptance campaign on real cases
+
+Six BNF C-SAPR2 PPI volumes, three storm modes, four dates, lowest sweep, 100 m
+gates, `smoothing_km = 1.0` (realised 1.10 km), ZDR offset +0.84 dB applied.
+ARM's shipped `specific_differential_phase` scored on **identical gates** as the
+comparator — not as truth, since it is another retrieval.
+
+**Passed.**
+
+| test | radar_palette | ARM shipped |
+|---|---|---|
+| Z-conditional median monotonic | 6 / 6 | 5 / 6 |
+| light rain (5–20 dBZ) above 1 deg/km | 0.000 on all 6 | 0.006 – 0.110 |
+| corr(KDP, Z) in rain | 0.43 – 0.67 (med 0.57) | 0.02 – 0.20 (med 0.07) |
+| negative KDP below 0 degC | **0.0000% on all 6** | 9.4% – 35.7% |
+| frac_repeat (staircase) | 0.000 on all 6 | 0.006 – 0.016 |
+
+The sign result is the sharpest: the altitude-conditioned floor holds exactly,
+while the shipped field is up to 35.7% negative in rain gates. That is a
+reminder that a shipped KDP field is a retrieval, not a reference.
+
+**Did not discriminate: the 1.18 width-ratio test.** 38 of 60 threshold rows
+were floor-limited — a PPI sweep at 100 m gates puts most supra-threshold runs
+at 2–3 gates. The 22 usable rows give 0.58–1.25 for this retrieval and 0.71–1.75
+for ARM against 1.18 predicted, on counts of 1–4 cases per percentile. **This is
+not a pass; the test had no power here.** It discriminated on RHIs (where ARM
+measured 2.0–2.5x) because an RHI concentrates gates in a plane through the
+storm. Run it on RHIs, not PPIs.
+
+**Unresolved: the decorrelation-length ratio is unstable.** Across the six cases
+it ranges 0.056–1.265 (median 0.40) for this retrieval and 0.075–0.500 for ARM.
+Both are mostly *below* 1, i.e. the KDP field decorrelates faster than Z — the
+opposite of the oversmoothing failure this metric was introduced to catch. Two
+caveats that must travel with it: the values are **raw 1/e lengths, not
+noise-corrected**, and `kdp-physics-anchor` §2 step 3 requires the correction and
+its `signal_fraction <= 1` guard before any such length is quoted; and the two
+cases with the shortest lengths are the two with the thinnest ray coverage. The
+metric is reported here, not relied on. `kdp-retrieval-cautionary-tale` §2 Test 2
+already flags that this ratio has given opposite verdicts on different radar
+configurations and that the disagreement was never reconciled — this campaign
+adds a third configuration and does not reconcile it either.
+
+**Coverage is the main practical limitation.** Rays solved per volume: 360, 152,
+361, 358, 222, 128 of ~360. `min_window_weight_fraction = 1.0` excludes any
+derivative window containing an unweighted gate, which is what makes offset
+invariance structural, and gap-filling by linear interpolation upstream recovers
+some but not all of it. Two of six volumes solved under half their rays.
+
+Reproduce with `docs/acceptance_campaign.py`.
