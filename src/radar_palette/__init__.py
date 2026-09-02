@@ -21,6 +21,12 @@ common geometry and decibel-handling layer:
     and melting-layer constraints, plus tooling for measuring and exploiting
     temporal persistence between volumes.
 
+``radar_palette.mdsreplace``
+    Estimation of the minimum detectable signal against range, and
+    replacement of filtered, masked and fill gates by it, so that gridding
+    has a physically meaningful floor to interpolate towards rather than a
+    hole. Pairs directly with ``gateid``: classify, filter, then fill.
+
 ``radar_palette.io``
     Object-flavour interoperability. Both capabilities accept Py-ART
     (``Radar``/``Grid``) and xradar (``DataTree``/xarray ``Dataset``) objects, and
@@ -36,7 +42,15 @@ public API here is not yet stable.
 
 from __future__ import annotations
 
-from radar_palette import advection, gateid, gridding, io, testing, util
+from radar_palette import (
+    advection,
+    gateid,
+    gridding,
+    io,
+    mdsreplace,
+    testing,
+    util,
+)
 
 try:  # pragma: no cover - generated at build time by setuptools-scm
     from radar_palette._version import version as __version__
@@ -55,6 +69,7 @@ __all__ = [
     "gateid",
     "gridding",
     "io",
+    "mdsreplace",
     "testing",
     "util",
 ]
