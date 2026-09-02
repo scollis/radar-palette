@@ -52,10 +52,10 @@ Mean fraction of all gates per class, by storm mode (71 volumes):
 | storm mode | n | no return | biological | clutter | second trip | kept as met | backfilled |
 |---|---|---|---|---|---|---|---|
 | clear air | 2 | 88.2 % | 9.9 % | 0.12 % | 0.01 % | 1.8 % | 99.9 % |
-| light drizzle | 6 | 53.8 % | 14.0 % | 1.2 % | 2.0 % | 26.5 % | 95.4 % |
-| isolated cells | 21 | 89.6 % | 6.5 % | 0.31 % | 0.12 % | 3.5 % | 98.0 % |
-| multicell cluster | 20 | 84.8 % | 4.4 % | 0.26 % | 0.37 % | 10.2 % | 90.1 % |
-| QLCS | 22 | 73.9 % | 3.1 % | 0.62 % | 0.65 % | 21.8 % | 78.7 % |
+| light drizzle | 6 | 53.8 % | 14.0 % | 1.22 % | 2.03 % | 26.5 % | 95.4 % |
+| isolated cells | 21 | 89.4 % | 6.4 % | 0.31 % | 0.15 % | 3.7 % | 98.0 % |
+| multicell cluster | 20 | 83.7 % | 4.3 % | 0.28 % | 0.39 % | 11.3 % | 90.1 % |
+| QLCS | 22 | 74.0 % | 3.2 % | 0.58 % | 0.67 % | 21.6 % | 78.7 % |
 
 Biological echo is the largest *removed* class after receiver noise in every
 mode, and at the lowest sweep it dominates: 19.3 % of sweep-0 gates on the
